@@ -1,0 +1,72 @@
+package cli
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"syscall"
+	"time"
+
+	"github.com/vizkid/ping/internal/claude"
+)
+
+// cmdClaude replaces itself with Claude Code, loading Ping's channel.
+func cmdClaude(_ context.Context, env Env, args []string) error {
+	bin := env.Getenv("PING_CLAUDE_BIN")
+	if bin == "" {
+		var err error
+		if bin, err = exec.LookPath("claude"); err != nil {
+			return errors.New("no_claude: claude is not on PATH; set PING_CLAUDE_BIN")
+		}
+	}
+	self, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	argv := append([]string{bin}, claude.LaunchArgs(self, args)...)
+	return syscall.Exec(bin, argv, os.Environ())
+}
+
+// cmdMCP is the adapter Claude starts as its MCP server. It never fails
+// loudly: without a Rex pane or the channel flag it serves MCP with no
+// channel, and the pane falls back to terminal delivery.
+func cmdMCP(ctx context.Context, env Env, _ []string) error {
+	st, err := openStore(env)
+	if err != nil {
+		return err
+	}
+	rc := env.Rex
+	if dir := env.Getenv("REX_BIN_DIR"); dir != "" {
+		rc.Bin = filepath.Join(dir, "rex") // an MCP child may lack a login PATH
+	}
+	session, block := env.Getenv("REX_SESSION"), env.Getenv("REX_BLOCK")
+	configDir := env.Getenv("CLAUDE_CONFIG_DIR")
+	if configDir == "" {
+		configDir = filepath.Join(env.Getenv("HOME"), ".claude")
+	}
+	ppid := os.Getppid()
+	parentArgs := claude.ParentArgs
+	if session == "" || block == "" {
+		parentArgs = func(int) ([]string, error) { return nil, errNotInPane }
+		block = "none"
+	}
+	cfg := claude.Config{
+		Store: st, Session: session, Block: block, ParentPID: ppid,
+		ParentArgs: parentArgs,
+		Transcript: func() (string, error) { return claude.TranscriptPath(configDir, ppid) },
+		AgentStatus: func(ctx context.Context) (string, error) {
+			s, err := rc.ProgramStatus(ctx, session, block)
+			if err != nil || s == nil {
+				return "", fmt.Errorf("no status: %v", err)
+			}
+			return s.State, nil
+		},
+		Now:    env.Now,
+		Writer: fmt.Sprintf("mcp:%d:%d", os.Getpid(), time.Now().UnixNano()),
+		Log:    env.Stderr,
+	}
+	return claude.Serve(watchContext(ctx), cfg, env.Stdin, env.Stdout)
+}

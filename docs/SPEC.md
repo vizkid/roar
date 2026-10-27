@@ -124,7 +124,7 @@ The `ids/` link is written after the rename into `box/`. A crash between the two
 | Change state | Take the message's `flock`. Write `state.json` to a temporary file, fsync, rename, fsync the directory. Release. |
 | Claim for delivery | Hold the message's `flock` for the whole attempt. Another deliverer that finds the lock held skips the message. |
 | Is a native adapter live? | Try a non-blocking `flock` on `adapters/<block>.lock`. If it succeeds, no adapter holds it; release at once. The kernel releases the lock when an adapter dies, so a crash never leaves a stale claim. |
-| Wake an adapter | Adapters watch their `box/<block>/` directory (kqueue on macOS, inotify on Linux). |
+| Wake an adapter | Adapters poll their `box/<block>/` directory every 250 ms. A directory read is cheap, and polling needs no platform file watcher. |
 
 Retention: unread messages are never pruned. Read and expired messages are kept 7 days, so a late reply can still find its original. Pruning runs during `ping send` and `ping enqueue`.
 
@@ -281,7 +281,10 @@ These records are undocumented provider formats. If the sessions file or the rec
 ### Replay
 
 Replay an `accepted` message only when the `ping mcp` process that wrote it has changed. Same writer means Claude still holds it.
-The adapter keeps the last 256 delivered IDs and drops a repeat.
+Each adapter records its writer identity (`mcp:<pid>:<start time>`) and the write time on every message it writes. It records the write before it writes, so a crash never leaves a written message looking queued.
+Only `queued` messages are written, so one adapter never writes the same ID twice. A second write happens only after a removal without receipt, or after the writer changed. Both are intended replays.
+
+The adapter's MCP `instructions` tell the model how to read the header and answer with `ping send --reply <id>`.
 
 ## Codex adapter
 
@@ -486,6 +489,7 @@ Live probes on 2026-10-27 used Claude Code 2.1.311, Codex CLI 0.164.0, and two R
 | A raw-mode block receives a streamed payload intact | Live: 1 MiB locally in 0.55 s; 1 MiB remote in 4.1 s and 4 MiB in 16.8 s, digest verified. Each 48 KiB chunk was one CLI call. |
 | Rex has no durable application inbox | `help.all` and `rex actions` list none |
 | Fallback delivers into real Claude and Codex, and a later draft holds the next message | Live test: both agents answered the typed message |
+| `ping claude` delivers natively: idle as `turn`, during a tool call as `mid_turn`, a request held while working, receipt after `/clear` | Live test against Claude Code 2.1.311 |
 | Codex reports `idle`, then works briefly during startup | Live: the proof held a message as `busy` 1 s after the first `idle` |
 | Rex runs pane commands in its server's login environment, not the caller's | Live: agents started without the caller's `CLAUDE_CONFIG_DIR` or `CODEX_HOME` |
 | macOS may report either path of a hard-linked binary | A test agent hard-linked as `claude` and `codex` intermittently failed the owner-name check |

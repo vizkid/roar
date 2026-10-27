@@ -46,6 +46,8 @@ var commands = map[string]command{
 	"resolve":  cmdResolve,
 	"ready":    cmdReady,
 	"deliver":  cmdDeliver,
+	"claude":   cmdClaude,
+	"mcp":      cmdMCP,
 }
 
 const usage = `usage: ping <command> [args]
@@ -58,6 +60,8 @@ const usage = `usage: ping <command> [args]
   resolve <id> --read|--requeue   settle a message in state unknown
   ready <target>             is the pane's agent at rest with an empty composer? (exit 0 yes, 1 wait, 2 never)
   deliver [target...] [--watch]   type held messages into panes that are ready
+  claude [args...]           run Claude Code with the Ping channel loaded
+  mcp                        the Claude adapter (Claude starts it; do not run it yourself)
 `
 
 // Main runs one command and returns its exit code.
