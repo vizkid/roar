@@ -321,8 +321,17 @@ The proxy sees the TUI's own `thread/start`, `thread/resume`, and `thread/fork` 
 | Busy | `turn/steer {threadId, input, expectedTurnId}` | `read`, boundary `mid_turn` |
 
 - The proxy injects calls on the TUI's own upstream connection with a reserved ID prefix. It hides those responses from the TUI, and refuses a TUI frame that uses the prefix.
-- An RPC error means not delivered. A stale steer returns `-32600`, and the proxy retries with the current state.
-- A disconnect or timeout after the write is `unknown`. A live test showed the turn still ran after the client disconnected.
+- An RPC error means not delivered. The message returns to `queued` with hold reason `codex_rejected`. A stale steer returns `-32600`; the proxy then forgets that turn, so the next attempt starts a turn.
+- With no bound thread, or while a TUI thread call is outstanding, the message returns to `queued` with hold reason `codex_not_ready`. Nothing was sent.
+- A disconnect or a 15-second timeout after the write is `unknown`. A live test showed the turn still ran after the client disconnected.
+- The adapter delivers queued messages oldest first. A message that arrives while a turn runs steers that turn.
+- A message left `written` by an earlier `ping codex` process becomes `unknown` with reason `adapter_restarted`, never replayed.
+
+### Process lifetime
+
+The App Server runs in its own process group, so Ctrl-C in the pane reaches only the TUI. `ping codex` ignores SIGINT and SIGQUIT while the TUI runs, like a shell does.
+A pane hangup or kill does not reach that group either. So `ping codex` stops the App Server on SIGHUP and SIGTERM.
+Nothing can clean up after SIGKILL. Each launch writes `<dir>/owner` with its own PID and the server's process group. The next `ping codex` start stops servers whose owner is dead, and removes their directories. It signals a group only when the process command still names that directory's socket, because process IDs are reused.
 
 ## Fallback through Rex
 
@@ -490,6 +499,8 @@ Live probes on 2026-10-27 used Claude Code 2.1.311, Codex CLI 0.164.0, and two R
 | Rex has no durable application inbox | `help.all` and `rex actions` list none |
 | Fallback delivers into real Claude and Codex, and a later draft holds the next message | Live test: both agents answered the typed message |
 | `ping claude` delivers natively: idle as `turn`, during a tool call as `mid_turn`, a request held while working, receipt after `/clear` | Live test against Claude Code 2.1.311 |
+| `ping codex` delivers natively: idle as `turn/start`, while working as `turn/steer`, after `/new` into the thread the TUI shows | Live test against Codex 0.164.0 |
+| Killing the pane left the App Server running until `ping codex` handled SIGHUP | Live: an orphaned `codex app-server` after `rex kill`; none after the fix |
 | Codex reports `idle`, then works briefly during startup | Live: the proof held a message as `busy` 1 s after the first `idle` |
 | Rex runs pane commands in its server's login environment, not the caller's | Live: agents started without the caller's `CLAUDE_CONFIG_DIR` or `CODEX_HOME` |
 | macOS may report either path of a hard-linked binary | A test agent hard-linked as `claude` and `codex` intermittently failed the owner-name check |

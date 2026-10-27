@@ -48,6 +48,7 @@ var commands = map[string]command{
 	"deliver":  cmdDeliver,
 	"claude":   cmdClaude,
 	"mcp":      cmdMCP,
+	"codex":    cmdCodex,
 }
 
 const usage = `usage: ping <command> [args]
@@ -61,6 +62,7 @@ const usage = `usage: ping <command> [args]
   ready <target>             is the pane's agent at rest with an empty composer? (exit 0 yes, 1 wait, 2 never)
   deliver [target...] [--watch]   type held messages into panes that are ready
   claude [args...]           run Claude Code with the Ping channel loaded
+  codex [args...]            run Codex behind the Ping proxy
   mcp                        the Claude adapter (Claude starts it; do not run it yourself)
 `
 
