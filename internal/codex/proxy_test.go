@@ -75,6 +75,21 @@ func TestBusyThreadIsSteeredAndStaleSteerRetries(t *testing.T) {
 	}
 }
 
+// Codex starts turns on side threads (to name a thread, for one) over the
+// TUI's own connection. Those turns must not mark the bound thread busy:
+// live, the stale turn made every later message a rejected steer.
+func TestSideThreadTurnDoesNotBusyTheBoundThread(t *testing.T) {
+	s := newFakeServer(t)
+	p, sock := startProxy(t, s)
+	tui := connectTUI(t, sock, "codex-tui")
+	tui.call("thread/start", map[string]any{})
+	tui.call("turn/start", map[string]any{"threadId": "side"})
+	time.Sleep(100 * time.Millisecond)
+	if r, err := deliver(t, p, "x"); err != nil || r.Method != "turn/start" {
+		t.Fatalf("idle bound thread: %+v %v", r, err)
+	}
+}
+
 func TestNewThreadRebinds(t *testing.T) {
 	s := newFakeServer(t)
 	p, sock := startProxy(t, s)

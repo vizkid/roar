@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"sync"
@@ -42,6 +43,9 @@ type Proxy struct {
 	mu       sync.Mutex // guards every link field and bound
 	bound    *link
 	seq      uint64
+	// Trace, when set, gets one line per thread or turn frame the proxy
+	// observes. ROAR_CODEX_TRACE names its file.
+	Trace io.Writer
 }
 
 // NewProxy proxies to the App Server listening on the Unix socket upstream.
@@ -71,8 +75,8 @@ type link struct {
 	closed      bool
 	thread      string
 	turn        string
-	threadCalls map[string]bool // the TUI's outstanding thread/start|resume|fork
-	turnCalls   map[string]bool // the TUI's outstanding turn/start
+	threadCalls map[string]bool   // the TUI's outstanding thread/start|resume|fork
+	turnCalls   map[string]string // the TUI's outstanding turn/start, by call ID, to its thread
 	pending     map[string]chan reply
 }
 
@@ -160,7 +164,7 @@ func (p *Proxy) Handler() http.Handler {
 			return
 		}
 		defer tui.Close()
-		l := &link{up: up, threadCalls: map[string]bool{}, turnCalls: map[string]bool{}, pending: map[string]chan reply{}}
+		l := &link{up: up, threadCalls: map[string]bool{}, turnCalls: map[string]string{}, pending: map[string]chan reply{}}
 		defer p.close(l)
 		done := make(chan struct{})
 		go func() { defer close(done); defer up.Close(); p.fromTUI(l, tui) }()

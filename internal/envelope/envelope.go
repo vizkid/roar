@@ -74,13 +74,15 @@ func (e Envelope) Validate() error {
 	return e.validateFiles()
 }
 
-// Header is the single line an agent sees before the body.
+// Header is the single line an agent sees before the body. It carries no
+// usage hint: the roar skill teaches the agent to answer.
 func (e Envelope) Header() string {
 	from := Sanitize(e.From.Label)
 	if from == "" {
 		from = "?"
 	}
-	parts := []string{"[roar", Sanitize(e.ID), "from", from + "/" + shortBlock(e.From.Block), string(NormalizeKind(e.Kind))}
+	id := Sanitize(e.ID)
+	parts := []string{"[roar", id, "from", from + "/" + shortBlock(e.From.Block), string(NormalizeKind(e.Kind))}
 	if e.ReplyTo != "" {
 		parts = append(parts, "↩"+Sanitize(e.ReplyTo))
 	}

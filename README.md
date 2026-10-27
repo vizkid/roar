@@ -41,7 +41,11 @@ roar read <id> --mark
 roar send --reply <id> "Done."
 ```
 
-A target is a Rex session label, optionally followed by `/pane` and preceded by `host:`, or a block ID.
+`roar claude` and `roar codex` install a `roar` skill in the agent's config root (`~/.claude/skills/roar`, `~/.codex/skills/roar`, or under `CLAUDE_CONFIG_DIR` or `CODEX_HOME`).
+The skill teaches the agent to answer messages and send its own.
+`roar send` prints `<id> <state> [reason]`, so neither you nor an agent needs a follow-up `roar status`.
+
+A target is a Rex session, tab (window) or pane label, `tab@session` (or `session/tab`), or a block ID. Put `host:` in front for another Rex host.
 
 | The recipient was started with | Delivery |
 | --- | --- |

@@ -61,13 +61,21 @@ func (h *harness) must(p pane, args ...string) string {
 	return strings.TrimSpace(out)
 }
 
+// send runs roar send and returns the message ID, the first field it prints.
+func (h *harness) send(p pane, args ...string) string {
+	h.t.Helper()
+	return strings.Fields(h.must(p, args...))[0]
+}
+
 func TestSendInboxReadStatus(t *testing.T) {
 	h := newHarness(t)
 	alice, bob := h.pane("alice"), h.pane("bob")
 
-	id := h.must(alice, "send", bob.label, "hello", "bob")
-	if !strings.HasPrefix(id, "rm-") {
-		t.Fatalf("send printed %q", id)
+	// send prints the outcome too, so an agent needs no roar status call.
+	out := h.must(alice, "send", bob.label, "hello", "bob")
+	id := strings.Fields(out)[0]
+	if !strings.HasPrefix(id, "rm-") || out != id+" queued wrong_program" {
+		t.Fatalf("send printed %q", out)
 	}
 	inbox := h.must(bob, "inbox")
 	if !strings.Contains(inbox, id) || !strings.Contains(inbox, "hello bob") {
@@ -111,8 +119,8 @@ func TestSendFromStdinAndJSON(t *testing.T) {
 func TestReplyAddressesOriginalSender(t *testing.T) {
 	h := newHarness(t)
 	a, b := h.pane("a"), h.pane("b")
-	id := h.must(a, "send", b.label, "question")
-	reply := h.must(b, "send", "--reply", id, "answer")
+	id := h.send(a, "send", b.label, "question")
+	reply := h.send(b, "send", "--reply", id, "answer")
 	st, _ := store.Open(h.home)
 	m, _ := st.Get(reply)
 	if m.Envelope.To.Block != a.block || m.Envelope.ReplyTo != id {
@@ -139,7 +147,7 @@ func TestRefusals(t *testing.T) {
 func TestWithdrawAndResolve(t *testing.T) {
 	h := newHarness(t)
 	a, b := h.pane("a"), h.pane("b")
-	id := h.must(a, "send", b.label, "oops")
+	id := h.send(a, "send", b.label, "oops")
 	if code, _, _ := h.run(b, "", "withdraw", id); code != 2 {
 		t.Fatal("recipient withdrew the sender's message")
 	}
@@ -148,7 +156,7 @@ func TestWithdrawAndResolve(t *testing.T) {
 		t.Fatalf("status after withdraw %q", s)
 	}
 
-	id = h.must(a, "send", b.label, "lost in flight")
+	id = h.send(a, "send", b.label, "lost in flight")
 	st, _ := store.Open(h.home)
 	c, _ := st.Claim(id)
 	c.Move(store.Written, time.Now(), nil)
@@ -170,7 +178,7 @@ func TestSendWithAttachments(t *testing.T) {
 	one, two := filepath.Join(dir, "one.txt"), filepath.Join(t.TempDir(), "one.txt")
 	os.WriteFile(one, []byte("first"), 0o600)
 	os.WriteFile(two, []byte("second"), 0o600)
-	id := h.must(a, "send", "--file", one, "--file", two, b.label, "two files")
+	id := h.send(a, "send", "--file", one, "--file", two, b.label, "two files")
 	body := h.must(b, "read", id)
 	var paths []string
 	for _, l := range strings.Split(body, "\n") {

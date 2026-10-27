@@ -23,12 +23,19 @@ func cmdCodex(ctx context.Context, env Env, args []string) error {
 			return errors.New("no_codex: codex is not on PATH; set ROAR_CODEX_BIN")
 		}
 	}
+	installSkill(env, "codex")
 	ctx = context.WithoutCancel(ctx) // the TUI may run for days
 	sess, err := codex.Start(ctx, bin)
 	if err != nil {
 		return err
 	}
 	defer sess.Stop()
+	if path := env.Getenv("ROAR_CODEX_TRACE"); path != "" {
+		if f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600); err == nil {
+			defer f.Close()
+			sess.Proxy.Trace = f
+		}
+	}
 	// A pane hangup or kill must not leave the App Server running.
 	hup := make(chan os.Signal, 1)
 	signal.Notify(hup, syscall.SIGHUP, syscall.SIGTERM)

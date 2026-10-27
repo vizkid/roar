@@ -149,6 +149,25 @@ func TestClaimMoveAndExclusive(t *testing.T) {
 	}
 }
 
+// A retry's error must not outlive a delivery: status showed a stale
+// codex_rejected next to read, and the sending agent spent a turn on it.
+func TestDeliveryClearsEarlierReason(t *testing.T) {
+	s := newStore(t)
+	e := msg("block:r", "x")
+	put(t, s, e)
+	c, _ := s.Claim(e.ID)
+	defer c.Release()
+	c.Move(Written, t0, nil)
+	c.Move(Queued, t0, func(r *Record) { r.HoldReason, r.Reason = "codex_rejected", "-32600 no active turn" })
+	c.Move(Written, t0, nil)
+	if err := c.Move(Read, t0, func(r *Record) { r.Proof = "codex_turn_start" }); err != nil {
+		t.Fatal(err)
+	}
+	if r := c.Message().Record; r.Reason != "" || r.HoldReason != "" || r.Proof != "codex_turn_start" {
+		t.Fatalf("record %+v", r)
+	}
+}
+
 func TestWithdrawOnlyUnreadFromSender(t *testing.T) {
 	s := newStore(t)
 	e := msg("block:r", "x")

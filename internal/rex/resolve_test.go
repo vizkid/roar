@@ -87,3 +87,34 @@ func TestResolveFailures(t *testing.T) {
 		t.Fatal("unknown pane label resolved")
 	}
 }
+
+// A name with no session behind it can be a window (tab) or pane label in
+// any session: people see window labels in Rex, not session labels.
+func TestResolveWindowAndPaneLabels(t *testing.T) {
+	c := rextest.Require(t)
+	label, win := rextest.Label("tabs"), rextest.Label("win")
+	session, block := rextest.Session(t, c, label, "sleep", "300")
+	if _, err := c.Run(ctx(t), "window", "rename", "-s", session, win); err != nil {
+		t.Fatal(err)
+	}
+	for _, target := range []string{win, label + "/" + win, win + "@" + label} {
+		a, err := rex.Resolve(ctx(t), c, target)
+		if err != nil || a.Block != block || a.Session != session || a.Label != label {
+			t.Fatalf("%s: %+v %v", target, a, err)
+		}
+	}
+	pane := rextest.Label("pane")
+	worker := rextest.Split(t, c, session, block, pane, "sleep", "300")
+	if a, err := rex.Resolve(ctx(t), c, pane); err != nil || a.Block != worker {
+		t.Fatalf("pane label: %+v %v", a, err)
+	}
+
+	// The same window label in two sessions names neither.
+	other, _ := rextest.Session(t, c, rextest.Label("tabs2"), "sleep", "300")
+	if _, err := c.Run(ctx(t), "window", "rename", "-s", other, win); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := rex.Resolve(ctx(t), c, win); !errors.Is(err, rex.ErrAmbiguous) || !strings.Contains(err.Error(), win+"@"+label) {
+		t.Fatalf("label in two sessions: %v", err)
+	}
+}

@@ -101,6 +101,7 @@ type Block struct {
 	Flavor    string `json:"flavor"`
 	HostID    string `json:"host_id"`
 	Placement string `json:"placement"`
+	WindowID  string `json:"window_id"`
 }
 
 // Terminal reports whether the block is a placed terminal pane.
@@ -113,6 +114,20 @@ func (c Client) Blocks(ctx context.Context, session string) ([]Block, error) {
 		Blocks []Block `json:"blocks"`
 	}
 	return out.Blocks, c.JSON(ctx, &out, "block", "ls", "-s", session, "--json")
+}
+
+// Window is one entry of `rex window ls`. Its label is the tab name people
+// see in Rex.
+type Window struct {
+	ID    string `json:"window_id"`
+	Label string `json:"label"`
+}
+
+func (c Client) Windows(ctx context.Context, session string) ([]Window, error) {
+	var out struct {
+		Windows []Window `json:"windows"`
+	}
+	return out.Windows, c.JSON(ctx, &out, "window", "ls", "-s", session, "--json")
 }
 
 // Call invokes a block method and decodes its result.

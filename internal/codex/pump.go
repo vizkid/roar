@@ -2,6 +2,7 @@ package codex
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 
 	"github.com/gorilla/websocket"
@@ -29,7 +30,11 @@ func (p *Proxy) fromTUI(l *link, tui *websocket.Conn) {
 			case m.Method == "thread/start" || m.Method == "thread/resume" || m.Method == "thread/fork":
 				l.threadCalls[string(m.ID)] = true
 			case m.Method == "turn/start":
-				l.turnCalls[string(m.ID)] = true
+				var tp struct {
+					ThreadID string `json:"threadId"`
+				}
+				json.Unmarshal(m.Params, &tp)
+				l.turnCalls[string(m.ID)] = tp.ThreadID
 			}
 			p.mu.Unlock()
 		}
@@ -91,15 +96,16 @@ func (p *Proxy) observe(l *link, m wire) bool {
 			delete(l.threadCalls, key)
 			p.bindThread(l, m)
 		}
-		if l.turnCalls[key] {
+		if thread, ok := l.turnCalls[key]; ok {
 			delete(l.turnCalls, key)
 			var res struct {
 				Turn struct {
 					ID string `json:"id"`
 				} `json:"turn"`
 			}
-			// The turn/start result arrives before turn/started.
-			if m.Error == nil && json.Unmarshal(m.Result, &res) == nil && res.Turn.ID != "" {
+			// The turn/start result arrives before turn/started. A turn on a
+			// side thread (Codex names threads this way) leaves l.turn alone.
+			if thread == l.thread && m.Error == nil && json.Unmarshal(m.Result, &res) == nil && res.Turn.ID != "" {
 				l.turn = res.Turn.ID
 			}
 		}
@@ -111,7 +117,11 @@ func (p *Proxy) observe(l *link, m wire) bool {
 			ID string `json:"id"`
 		} `json:"turn"`
 	}
-	if json.Unmarshal(m.Params, &ev) != nil || ev.ThreadID == "" || ev.ThreadID != l.thread {
+	bad := json.Unmarshal(m.Params, &ev) != nil
+	if p.Trace != nil && (strings.HasPrefix(m.Method, "turn/") || strings.HasPrefix(m.Method, "thread/")) {
+		fmt.Fprintf(p.Trace, "%s thread=%s turn=%s bound=%s/%s\n", m.Method, ev.ThreadID, ev.Turn.ID, l.thread, l.turn)
+	}
+	if bad || ev.ThreadID == "" || ev.ThreadID != l.thread {
 		return false
 	}
 	switch m.Method {

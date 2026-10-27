@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/vizkid/roar/internal/envelope"
 	"github.com/vizkid/roar/internal/rex"
@@ -87,11 +88,39 @@ func cmdSend(ctx context.Context, env Env, args []string) error {
 	if _, err := deliverer(env, st).Block(ctx, to.Block); err != nil {
 		fmt.Fprintf(env.Stderr, "roar: delivery pass: %v\n", err)
 	}
-	m, err := st.Get(e.ID)
+	m, err := settle(ctx, st, e.ID)
 	if err != nil {
 		return err
 	}
 	return printResult(env, e.ID, string(m.Record.State), m.Record.HoldReason, *asJSON)
+}
+
+// settleFor bounds how long send waits for a native adapter's outcome.
+// Codex and Claude settle in about a second; waiting here saves the sending
+// agent a whole roar status turn.
+const settleFor = 3 * time.Second
+
+// settle waits while the message is in flight: claimed by an adapter, or
+// queued for one (no hold reason yet, or the fallback's native_adapter).
+func settle(ctx context.Context, st *store.Store, id string) (store.Message, error) {
+	deadline := time.Now().Add(settleFor)
+	for {
+		m, err := st.Get(id)
+		if err != nil {
+			return m, err
+		}
+		r := m.Record
+		moving := r.State == store.Written || r.State == store.Accepted || r.State == store.Submitting ||
+			(r.State == store.Queued && (r.HoldReason == "" || r.HoldReason == "native_adapter"))
+		if !moving || time.Now().After(deadline) {
+			return m, nil
+		}
+		select {
+		case <-ctx.Done():
+			return m, nil
+		case <-time.After(100 * time.Millisecond):
+		}
+	}
 }
 
 // recipient finds the address for a send, and the words left for the body.
@@ -116,9 +145,11 @@ func recipient(ctx context.Context, env Env, st *store.Store, from envelope.Addr
 	return to, pos[1:], err
 }
 
+// printResult prints "<id> <state> [hold reason]". Scripts take the first
+// field, or use --json.
 func printResult(env Env, id, state, reason string, asJSON bool) error {
 	if !asJSON {
-		fmt.Fprintln(env.Stdout, id)
+		fmt.Fprintln(env.Stdout, strings.TrimSpace(id+" "+state+" "+reason))
 		return nil
 	}
 	return json.NewEncoder(env.Stdout).Encode(map[string]any{"id": id, "state": state, "hold_reason": reason})

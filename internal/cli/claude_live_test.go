@@ -56,7 +56,7 @@ func TestLiveClaudeChannel(t *testing.T) {
 	}
 
 	// 1. Idle: the message starts a turn.
-	id := h.must(sender, "send", label, "Roar live test: reply with the word OK only.")
+	id := h.send(sender, "send", label, "Roar live test: reply with the word OK only.")
 	if rec := settle(id, store.Read); rec.Boundary != "turn" || rec.Proof != "claude_transcript" {
 		t.Fatalf("idle receipt %+v", rec)
 	}
@@ -64,14 +64,14 @@ func TestLiveClaudeChannel(t *testing.T) {
 
 	// 2. Mid-turn: a note sent while Claude runs a tool is absorbed in the turn,
 	// and a request waits until Claude is at rest.
-	busy := h.must(sender, "send", label, "Run the shell command `sleep 12`, then reply DONE.")
+	busy := h.send(sender, "send", label, "Run the shell command `sleep 12`, then reply DONE.")
 	settle(busy, store.Read)
 	waitFor(20*time.Second, func() bool {
 		s, _ := h.rex.ProgramStatus(t.Context(), session, block)
 		return s != nil && s.State == "working"
 	})
-	note := h.must(sender, "send", label, "Mid-turn note for the live test; no reply needed.")
-	req := h.must(sender, "send", "--request", label, "Request for the live test: reply with the word YES only.")
+	note := h.send(sender, "send", label, "Mid-turn note for the live test; no reply needed.")
+	req := h.send(sender, "send", "--request", label, "Request for the live test: reply with the word YES only.")
 	time.Sleep(2 * time.Second)
 	if m, _ := st.Get(req); m.Record.State != store.Queued || m.Record.HoldReason != "busy" {
 		t.Fatalf("request while working: %+v", m.Record)
@@ -89,7 +89,7 @@ func TestLiveClaudeChannel(t *testing.T) {
 	h.rex.Run(t.Context(), "send-key", "-s", session, "-b", block, "enter")
 	time.Sleep(3 * time.Second)
 	waitAgentRest(t, h, session, block)
-	id = h.must(sender, "send", label, "After clear: reply with the word OK only.")
+	id = h.send(sender, "send", label, "After clear: reply with the word OK only.")
 	settle(id, store.Read)
 
 	screen, _ := h.rex.Run(t.Context(), "capture", "-s", session, "-b", block, "--trim")

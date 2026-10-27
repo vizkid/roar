@@ -32,8 +32,8 @@ type Config struct {
 	Log    io.Writer
 }
 
-const instructions = `Messages from other agents arrive as <channel source="roar"> blocks with a [roar <id> from <sender> <kind>] header.
-A "request" asks you to act; an "inform" is for your information. To answer, run: roar send --reply <id> "your answer".`
+// instructions stay short: the roar skill teaches the agent to answer.
+const instructions = `Messages from other agents arrive as <channel source="roar"> blocks. Use the roar skill to answer them.`
 
 // Serve speaks MCP over in/out until in closes or ctx ends. It declares the
 // channel capability only when Claude was started with the channel flag and

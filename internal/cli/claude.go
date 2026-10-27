@@ -26,6 +26,7 @@ func cmdClaude(_ context.Context, env Env, args []string) error {
 	if err != nil {
 		return err
 	}
+	installSkill(env, "claude")
 	argv := append([]string{bin}, claude.LaunchArgs(self, args)...)
 	return syscall.Exec(bin, argv, os.Environ())
 }

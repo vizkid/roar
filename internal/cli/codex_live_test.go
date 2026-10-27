@@ -60,20 +60,20 @@ func TestLiveCodexChannel(t *testing.T) {
 	}
 
 	// 1. Idle: a new turn.
-	id := h.must(sender, "send", label, "Roar live test one: reply with the word OK only.")
+	id := h.send(sender, "send", label, "Roar live test one: reply with the word OK only.")
 	if rec := settle(id); rec.Proof != "codex_turn_start" {
 		t.Fatalf("idle receipt %+v", rec)
 	}
 	waitAgentRest(t, h, session, block)
 
 	// 2. Busy: the second message steers the running turn.
-	long := h.must(sender, "send", label, "Write the numbers from 1 to 150, one per line, then the word END.")
+	long := h.send(sender, "send", label, "Write the numbers from 1 to 150, one per line, then the word END.")
 	settle(long)
 	waitFor(20*time.Second, func() bool {
 		s, _ := h.rex.ProgramStatus(t.Context(), session, block)
 		return s != nil && s.State == "working"
 	})
-	steer := h.must(sender, "send", label, "Roar live test steer: after END, also write STEERED.")
+	steer := h.send(sender, "send", label, "Roar live test steer: after END, also write STEERED.")
 	if rec := settle(steer); rec.Proof != "codex_turn_steer" || rec.Boundary != "mid_turn" {
 		t.Logf("second message receipt %+v (a turn that ended first is a turn/start)", rec)
 	}
@@ -85,7 +85,7 @@ func TestLiveCodexChannel(t *testing.T) {
 	h.rex.Run(t.Context(), "send-key", "-s", session, "-b", block, "enter")
 	time.Sleep(3 * time.Second)
 	waitAgentRest(t, h, session, block)
-	id = h.must(sender, "send", label, "Roar live test after new: reply with the word FRESH only.")
+	id = h.send(sender, "send", label, "Roar live test after new: reply with the word FRESH only.")
 	settle(id)
 	if !waitFor(30*time.Second, func() bool { return strings.Contains(screen(), "Roar live test after new") }) {
 		t.Fatalf("message after /new is not in the visible thread:\n%s", screen())

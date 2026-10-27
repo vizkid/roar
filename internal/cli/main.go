@@ -63,8 +63,8 @@ const usage = `usage: roar <command> [args]
   resolve <id> --read|--requeue   settle a message in state unknown
   ready <target>             is the pane's agent at rest with an empty composer? (exit 0 yes, 1 wait, 2 never)
   deliver [target...] [--watch]   type held messages into panes that are ready
-  claude [args...]           run Claude Code with the Roar channel loaded
-  codex [args...]            run Codex behind the Roar proxy
+  claude [args...]           install the roar skill, then run Claude Code with the Roar channel
+  codex [args...]            install the roar skill, then run Codex behind the Roar proxy
   install <host-label>       copy this roar to ~/.local/bin on another Rex host
   enqueue --sha256 <digest>  receive a message from another host (Roar runs this itself)
   mcp                        the Claude adapter (Claude starts it; do not run it yourself)
