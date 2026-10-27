@@ -7,11 +7,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/vizkid/ping/internal/agenttest"
-	"github.com/vizkid/ping/internal/envelope"
-	"github.com/vizkid/ping/internal/rex"
-	"github.com/vizkid/ping/internal/rextest"
-	"github.com/vizkid/ping/internal/store"
+	"github.com/vizkid/roar/internal/agenttest"
+	"github.com/vizkid/roar/internal/envelope"
+	"github.com/vizkid/roar/internal/rex"
+	"github.com/vizkid/roar/internal/rextest"
+	"github.com/vizkid/roar/internal/store"
 )
 
 type fixture struct {

@@ -5,7 +5,7 @@ import (
 	"errors"
 	"time"
 
-	"github.com/vizkid/ping/internal/rex"
+	"github.com/vizkid/roar/internal/rex"
 )
 
 // Freshness bounds how long one probe may take. Older readings could

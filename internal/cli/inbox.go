@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/vizkid/ping/internal/envelope"
-	"github.com/vizkid/ping/internal/store"
+	"github.com/vizkid/roar/internal/envelope"
+	"github.com/vizkid/roar/internal/store"
 )
 
 func cmdInbox(ctx context.Context, env Env, args []string) error {
@@ -55,7 +55,7 @@ func cmdRead(ctx context.Context, env Env, args []string) error {
 		return err
 	}
 	if len(pos) != 1 {
-		return usageErr("ping read <id> [--mark]")
+		return usageErr("roar read <id> [--mark]")
 	}
 	st, err := openStore(env)
 	if err != nil {

@@ -1,4 +1,4 @@
-// Package rex wraps the rex CLI. Ping uses the CLI's JSON output rather than
+// Package rex wraps the rex CLI. Roar uses the CLI's JSON output rather than
 // Rex's wire protocol, so it keeps working across Rex versions that keep the CLI.
 package rex
 

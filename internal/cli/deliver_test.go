@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/vizkid/ping/internal/agenttest"
+	"github.com/vizkid/roar/internal/agenttest"
 )
 
 func (h *harness) agent(kind string, env ...string) (*agenttest.Agent, pane) {

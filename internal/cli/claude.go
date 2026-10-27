@@ -10,16 +10,16 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/vizkid/ping/internal/claude"
+	"github.com/vizkid/roar/internal/claude"
 )
 
-// cmdClaude replaces itself with Claude Code, loading Ping's channel.
+// cmdClaude replaces itself with Claude Code, loading Roar's channel.
 func cmdClaude(_ context.Context, env Env, args []string) error {
-	bin := env.Getenv("PING_CLAUDE_BIN")
+	bin := env.Getenv("ROAR_CLAUDE_BIN")
 	if bin == "" {
 		var err error
 		if bin, err = exec.LookPath("claude"); err != nil {
-			return errors.New("no_claude: claude is not on PATH; set PING_CLAUDE_BIN")
+			return errors.New("no_claude: claude is not on PATH; set ROAR_CLAUDE_BIN")
 		}
 	}
 	self, err := os.Executable()

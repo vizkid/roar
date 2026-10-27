@@ -1,4 +1,4 @@
-// Package claude is Ping's native adapter for Claude Code: a launcher, an
+// Package claude is Roar's native adapter for Claude Code: a launcher, an
 // MCP server that declares the channel capability, and transcript receipt.
 package claude
 
@@ -12,19 +12,19 @@ import (
 )
 
 // Server is the MCP server name and the channel source Claude shows.
-const Server = "ping"
+const Server = "roar"
 
-// ChannelArg loads the Ping channel. The equals form keeps a list-valued
+// ChannelArg loads the Roar channel. The equals form keeps a list-valued
 // flag from swallowing the opening prompt.
 const ChannelArg = "--dangerously-load-development-channels=server:" + Server
 
 const channelFlag = "--dangerously-load-development-channels"
 
-// LaunchArgs builds Claude's arguments: Ping's MCP server, the channel
+// LaunchArgs builds Claude's arguments: Roar's MCP server, the channel
 // flag (once), then the caller's arguments.
-func LaunchArgs(pingPath string, args []string) []string {
+func LaunchArgs(roarPath string, args []string) []string {
 	cfg, _ := json.Marshal(map[string]any{"mcpServers": map[string]any{
-		Server: map[string]any{"type": "stdio", "command": pingPath, "args": []string{"mcp"}},
+		Server: map[string]any{"type": "stdio", "command": roarPath, "args": []string{"mcp"}},
 	}})
 	out := []string{"--mcp-config", string(cfg)}
 	if !channelEnabled(args) {
@@ -62,7 +62,7 @@ func printMode(args []string) bool {
 	return false
 }
 
-// channelEnabled looks for server:ping in the development-channels flag
+// channelEnabled looks for server:roar in the development-channels flag
 // before any "--". A bare --channels does not load local servers.
 func channelEnabled(args []string) bool {
 	for i := 0; i < len(args); i++ {

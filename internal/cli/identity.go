@@ -4,10 +4,10 @@ import (
 	"context"
 	"errors"
 
-	"github.com/vizkid/ping/internal/envelope"
+	"github.com/vizkid/roar/internal/envelope"
 )
 
-var errNotInPane = errors.New("not_in_rex_pane: run ping inside a Rex pane (REX_SESSION and REX_BLOCK unset)")
+var errNotInPane = errors.New("not_in_rex_pane: run roar inside a Rex pane (REX_SESSION and REX_BLOCK unset)")
 
 // self is the caller's own pane. It prevents mistakes, not attacks: any
 // process can set these variables.

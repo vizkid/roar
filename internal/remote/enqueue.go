@@ -11,17 +11,17 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/vizkid/ping/internal/envelope"
+	"github.com/vizkid/roar/internal/envelope"
 )
 
-// Result is what the remote `ping enqueue` reported.
+// Result is what the remote `roar enqueue` reported.
 type Result struct {
 	ID     string
 	State  string // a store state, or "duplicate"
 	Reason string
 }
 
-// Exit codes of `ping enqueue` beyond 0 and 2.
+// Exit codes of `roar enqueue` beyond 0 and 2.
 const ExitDigest = 6
 
 // Payload is what crosses hosts: the envelope and its attachments' contents.
@@ -43,13 +43,13 @@ func (h Host) EnqueueWithFiles(ctx context.Context, e envelope.Envelope, files m
 		return Result{}, err
 	}
 	sum := sha256.Sum256(payload)
-	code, screen, err := h.run(ctx, h.pingCommand("enqueue", "--sha256", hex.EncodeToString(sum[:])), payload, true)
+	code, screen, err := h.run(ctx, h.roarCommand("enqueue", "--sha256", hex.EncodeToString(sum[:])), payload, true)
 	if err != nil {
 		return Result{}, err
 	}
 	switch code {
 	case 0:
-		for _, f := range markedLines(screen, "PING-RESULT") {
+		for _, f := range markedLines(screen, "ROAR-RESULT") {
 			if len(f) >= 2 && f[0] == e.ID {
 				r := Result{ID: f[0], State: f[1]}
 				if len(f) > 2 && f[2] != "-" {
@@ -60,21 +60,21 @@ func (h Host) EnqueueWithFiles(ctx context.Context, e envelope.Envelope, files m
 		}
 		return Result{}, fmt.Errorf("%w: no result line", ErrUnknown)
 	case 126, 127:
-		return Result{}, fmt.Errorf("%w: install it with `ping install <host>`", ErrNoPing)
+		return Result{}, fmt.Errorf("%w: install it with `roar install <host>`", ErrNoPing)
 	case ExitDigest:
 		return Result{}, fmt.Errorf("%w: the envelope arrived damaged", ErrUnknown)
 	}
 	return Result{}, fmt.Errorf("%w: %s", ErrRefused, lastError(screen, code))
 }
 
-// StatusRow is one line of a remote `ping status --porcelain`.
+// StatusRow is one line of a remote `roar status --porcelain`.
 type StatusRow struct {
 	ID, State, Detail, Proof, Boundary string
 }
 
 // Status asks the host for the state of messages it holds.
 func (h Host) Status(ctx context.Context, ids ...string) ([]StatusRow, error) {
-	code, screen, err := h.run(ctx, h.pingCommand(append([]string{"status", "--porcelain"}, ids...)...), nil, false)
+	code, screen, err := h.run(ctx, h.roarCommand(append([]string{"status", "--porcelain"}, ids...)...), nil, false)
 	if err != nil {
 		return nil, err
 	}
@@ -85,7 +85,7 @@ func (h Host) Status(ctx context.Context, ids ...string) ([]StatusRow, error) {
 		return nil, fmt.Errorf("%w: %s", ErrRefused, lastError(screen, code))
 	}
 	var rows []StatusRow
-	for _, f := range markedLines(screen, "PING-STATUS") {
+	for _, f := range markedLines(screen, "ROAR-STATUS") {
 		for len(f) < 5 {
 			f = append(f, "-")
 		}
@@ -112,13 +112,13 @@ func (h Host) Install(ctx context.Context, binary []byte) error {
 	if code != 0 || !strings.Contains(screen, want) {
 		return fmt.Errorf("%w: host is %q, this binary is %q", ErrRefused, strings.TrimSpace(screen), want)
 	}
-	script := `stty -echo; set -e; d="$HOME/.local/bin"; mkdir -p "$d"; base64 -d > "$d/.ping.tmp"; ` +
-		`chmod 755 "$d/.ping.tmp"; mv "$d/.ping.tmp" "$d/ping"; echo PING-INSTALLED`
+	script := `stty -echo; set -e; d="$HOME/.local/bin"; mkdir -p "$d"; base64 -d > "$d/.roar.tmp"; ` +
+		`chmod 755 "$d/.roar.tmp"; mv "$d/.roar.tmp" "$d/roar"; echo ROAR-INSTALLED`
 	code, screen, err = h.run(ctx, []string{"/bin/sh", "-c", script}, binary, false)
 	if err != nil {
 		return err
 	}
-	if code != 0 || !strings.Contains(screen, "PING-INSTALLED") {
+	if code != 0 || !strings.Contains(screen, "ROAR-INSTALLED") {
 		return fmt.Errorf("%w: install exited %d: %s", ErrRefused, code, lastError(screen, code))
 	}
 	return nil
@@ -140,8 +140,8 @@ func markedLines(screen, marker string) [][]string {
 func lastError(screen string, code int) string {
 	lines := strings.Split(strings.TrimSpace(screen), "\n")
 	for i := len(lines) - 1; i >= 0; i-- {
-		if l := strings.TrimSpace(lines[i]); strings.HasPrefix(l, "ping: ") {
-			return strings.TrimPrefix(l, "ping: ")
+		if l := strings.TrimSpace(lines[i]); strings.HasPrefix(l, "roar: ") {
+			return strings.TrimPrefix(l, "roar: ")
 		}
 	}
 	return fmt.Sprintf("exit %d", code)

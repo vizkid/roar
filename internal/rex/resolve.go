@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/vizkid/ping/internal/envelope"
+	"github.com/vizkid/roar/internal/envelope"
 )
 
 var (

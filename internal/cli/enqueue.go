@@ -15,8 +15,8 @@ import (
 
 	"golang.org/x/term"
 
-	"github.com/vizkid/ping/internal/envelope"
-	"github.com/vizkid/ping/internal/remote"
+	"github.com/vizkid/roar/internal/envelope"
+	"github.com/vizkid/roar/internal/remote"
 )
 
 // cmdEnqueue is the receiving half of a cross-host send. Another host runs
@@ -29,7 +29,7 @@ func cmdEnqueue(ctx context.Context, env Env, args []string) error {
 		return err
 	}
 	if *digest == "" {
-		return usageErr("ping enqueue --sha256 <digest>")
+		return usageErr("roar enqueue --sha256 <digest>")
 	}
 	if f, ok := env.Stdin.(*os.File); ok && term.IsTerminal(int(f.Fd())) {
 		// Canonical terminal input limits line length; raw mode does not.
@@ -40,7 +40,7 @@ func cmdEnqueue(ctx context.Context, env Env, args []string) error {
 		defer term.Restore(int(f.Fd()), old)
 	}
 	nl := func(format string, a ...any) { fmt.Fprintf(env.Stdout, format+"\r\n", a...) }
-	nl("PING-READY")
+	nl("ROAR-READY")
 
 	// The JSON payload base64-encodes file contents, and the stream
 	// base64-encodes the payload again.
@@ -51,7 +51,7 @@ func cmdEnqueue(ctx context.Context, env Env, args []string) error {
 	}
 	sum := sha256.Sum256(payload)
 	if hex.EncodeToString(sum[:]) != *digest {
-		nl("ping: digest_mismatch")
+		nl("roar: digest_mismatch")
 		return silentExit(remote.ExitDigest)
 	}
 	var p remote.Payload
@@ -77,11 +77,11 @@ func cmdEnqueue(ctx context.Context, env Env, args []string) error {
 		return err
 	}
 	if dup {
-		nl("PING-RESULT %s duplicate -", e.ID)
+		nl("ROAR-RESULT %s duplicate -", e.ID)
 		return nil
 	}
 	if _, err := deliverer(env, st).Block(ctx, e.To.Block); err != nil {
-		fmt.Fprintf(env.Stderr, "ping: delivery pass: %v\r\n", err)
+		fmt.Fprintf(env.Stderr, "roar: delivery pass: %v\r\n", err)
 	}
 	m, err := st.Get(e.ID)
 	if err != nil {
@@ -94,7 +94,7 @@ func cmdEnqueue(ctx context.Context, env Env, args []string) error {
 	if reason == "" {
 		reason = "-"
 	}
-	nl("PING-RESULT %s %s %s", e.ID, m.Record.State, reason)
+	nl("ROAR-RESULT %s %s %s", e.ID, m.Record.State, reason)
 	return nil
 }
 

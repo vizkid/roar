@@ -8,31 +8,31 @@ import (
 	"testing"
 	"time"
 
-	"github.com/vizkid/ping/internal/rextest"
-	"github.com/vizkid/ping/internal/store"
+	"github.com/vizkid/roar/internal/rextest"
+	"github.com/vizkid/roar/internal/store"
 )
 
-// TestLiveClaudeChannel drives real Claude Code through `ping claude`. It
-// needs PING_LIVE=1 and PING_LIVE_DIR (a directory Claude already trusts),
+// TestLiveClaudeChannel drives real Claude Code through `roar claude`. It
+// needs ROAR_LIVE=1 and ROAR_LIVE_DIR (a directory Claude already trusts),
 // and spends a few short model turns.
 func TestLiveClaudeChannel(t *testing.T) {
-	if os.Getenv("PING_LIVE") != "1" || os.Getenv("PING_LIVE_DIR") == "" {
-		t.Skip("set PING_LIVE=1 and PING_LIVE_DIR to run live agent tests")
+	if os.Getenv("ROAR_LIVE") != "1" || os.Getenv("ROAR_LIVE_DIR") == "" {
+		t.Skip("set ROAR_LIVE=1 and ROAR_LIVE_DIR to run live agent tests")
 	}
 	h := newHarness(t)
 	claudeBin, err := exec.LookPath("claude")
 	if err != nil {
 		t.Skip("claude not on PATH")
 	}
-	pingBin := filepath.Join(t.TempDir(), "ping")
-	if b, err := exec.Command("go", "build", "-o", pingBin, "../../cmd/ping").CombinedOutput(); err != nil {
+	roarBin := filepath.Join(t.TempDir(), "roar")
+	if b, err := exec.Command("go", "build", "-o", roarBin, "../../cmd/roar").CombinedOutput(); err != nil {
 		t.Fatalf("build: %v %s", err, b)
 	}
-	cmd := []string{"env", "-C", os.Getenv("PING_LIVE_DIR"), "PING_HOME=" + h.home, "PING_CLAUDE_BIN=" + claudeBin}
+	cmd := []string{"env", "-C", os.Getenv("ROAR_LIVE_DIR"), "ROAR_HOME=" + h.home, "ROAR_CLAUDE_BIN=" + claudeBin}
 	if v := os.Getenv("CLAUDE_CONFIG_DIR"); v != "" {
 		cmd = append(cmd, "CLAUDE_CONFIG_DIR="+v)
 	}
-	cmd = append(cmd, pingBin, "claude", "--model", "haiku", "--strict-mcp-config",
+	cmd = append(cmd, roarBin, "claude", "--model", "haiku", "--strict-mcp-config",
 		"--settings", `{"disableAllHooks":true}`, "--allowedTools", "Bash(sleep:*)")
 	label := rextest.Label("claude")
 	session, block := rextest.Session(t, h.rex, label, cmd...)
@@ -42,7 +42,7 @@ func TestLiveClaudeChannel(t *testing.T) {
 	acceptConsent(t, h, session, block)
 	waitAgentRest(t, h, session, block)
 	if !waitFor(10*time.Second, func() bool { st, _ := store.Open(h.home); return st.AdapterLive(block) }) {
-		t.Fatal("ping mcp never took the adapter lock")
+		t.Fatal("roar mcp never took the adapter lock")
 	}
 	st, _ := store.Open(h.home)
 	settle := func(id string, want store.State) store.Record {
@@ -56,7 +56,7 @@ func TestLiveClaudeChannel(t *testing.T) {
 	}
 
 	// 1. Idle: the message starts a turn.
-	id := h.must(sender, "send", label, "Ping live test: reply with the word OK only.")
+	id := h.must(sender, "send", label, "Roar live test: reply with the word OK only.")
 	if rec := settle(id, store.Read); rec.Boundary != "turn" || rec.Proof != "claude_transcript" {
 		t.Fatalf("idle receipt %+v", rec)
 	}
@@ -98,7 +98,7 @@ func TestLiveClaudeChannel(t *testing.T) {
 }
 
 // acceptConsent answers Claude's development-channel dialog, only when it
-// names exactly the Ping channel. Tests act as the operator here.
+// names exactly the Roar channel. Tests act as the operator here.
 func acceptConsent(t *testing.T, h *harness, session, block string) {
 	t.Helper()
 	var screen string
@@ -110,7 +110,7 @@ func acceptConsent(t *testing.T, h *harness, session, block string) {
 	if !ok {
 		t.Fatalf("no consent dialog:\n%s", screen)
 	}
-	if !strings.Contains(screen, "Channels: server:ping") || strings.Count(screen, "server:") != 1 {
+	if !strings.Contains(screen, "Channels: server:roar") || strings.Count(screen, "server:") != 1 {
 		t.Fatalf("unexpected channel list:\n%s", screen)
 	}
 	h.rex.Run(t.Context(), "send-key", "-s", session, "-b", block, "enter")

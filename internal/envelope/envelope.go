@@ -1,4 +1,4 @@
-// Package envelope defines the message that Ping stores and delivers.
+// Package envelope defines the message that Roar stores and delivers.
 package envelope
 
 import (
@@ -16,7 +16,7 @@ const (
 	Request Kind = "request"
 )
 
-// MaxText is the largest message body Ping accepts.
+// MaxText is the largest message body Roar accepts.
 const MaxText = 256 << 10
 
 // Address names one Rex pane. IDs resolve only on the server named by HostID.
@@ -80,7 +80,7 @@ func (e Envelope) Header() string {
 	if from == "" {
 		from = "?"
 	}
-	parts := []string{"[ping", Sanitize(e.ID), "from", from + "/" + shortBlock(e.From.Block), string(NormalizeKind(e.Kind))}
+	parts := []string{"[roar", Sanitize(e.ID), "from", from + "/" + shortBlock(e.From.Block), string(NormalizeKind(e.Kind))}
 	if e.ReplyTo != "" {
 		parts = append(parts, "↩"+Sanitize(e.ReplyTo))
 	}

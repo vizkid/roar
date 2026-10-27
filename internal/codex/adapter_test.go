@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/vizkid/ping/internal/envelope"
-	"github.com/vizkid/ping/internal/store"
+	"github.com/vizkid/roar/internal/envelope"
+	"github.com/vizkid/roar/internal/store"
 )
 
 const block = "block:codex-pane"

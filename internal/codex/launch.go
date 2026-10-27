@@ -23,11 +23,11 @@ type Session struct {
 
 // Start runs `codex app-server` on a Unix socket in a private directory and
 // serves the proxy beside it. The directory sits under /tmp because macOS
-// limits socket paths to 104 bytes. Ping never listens on TCP: a loopback
+// limits socket paths to 104 bytes. Roar never listens on TCP: a loopback
 // WebSocket without auth would let any local process drive the agent.
 func Start(ctx context.Context, bin string) (*Session, error) {
 	ReapOrphans()
-	dir, err := os.MkdirTemp("/tmp", "ping-codex-")
+	dir, err := os.MkdirTemp("/tmp", "roar-codex-")
 	if err != nil {
 		return nil, err
 	}

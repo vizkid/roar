@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/vizkid/ping/internal/rex"
-	"github.com/vizkid/ping/internal/rextest"
+	"github.com/vizkid/roar/internal/rex"
+	"github.com/vizkid/roar/internal/rextest"
 )
 
 // Agent is one test agent running in its own Rex session.

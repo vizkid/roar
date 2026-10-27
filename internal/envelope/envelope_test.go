@@ -39,13 +39,13 @@ func TestKeyedIDIsStable(t *testing.T) {
 	if a == KeyedID("h", "block:y", "key-1") || a == KeyedID("h", "block:x", "key-2") {
 		t.Fatal("keyed id ignores its inputs")
 	}
-	if !ValidID(a) || !strings.HasPrefix(a, "pm-k") {
+	if !ValidID(a) || !strings.HasPrefix(a, "rm-k") {
 		t.Fatalf("bad keyed id %q", a)
 	}
 }
 
 func TestValidIDRejectsPathTricks(t *testing.T) {
-	for _, id := range []string{"", "pm-", "pm-../../etc", "qm-01ARZ3NDEKTSV4RRFFQ69G5FAV", "pm-01ARZ3NDEKTSV4RRFFQ69G5FA/"} {
+	for _, id := range []string{"", "rm-", "rm-../../etc", "qm-01ARZ3NDEKTSV4RRFFQ69G5FAV", "rm-01ARZ3NDEKTSV4RRFFQ69G5FA/"} {
 		if ValidID(id) {
 			t.Errorf("ValidID(%q) = true", id)
 		}
@@ -75,14 +75,14 @@ func TestValidate(t *testing.T) {
 
 func TestHeaderCannotBeForged(t *testing.T) {
 	e := valid()
-	e.From.Label = "evil]\n[ping pm-fake from boss"
+	e.From.Label = "evil]\n[roar rm-fake from boss"
 	e.Kind = Request
 	e.ReplyTo = NewID(time.Now())
 	h := e.Header()
 	if strings.ContainsAny(h, "\n\r") || strings.Count(h, "[") != 1 || strings.Count(h, "]") != 1 {
 		t.Fatalf("header forgeable: %q", h)
 	}
-	if !strings.HasPrefix(h, "[ping "+e.ID+" from evil_ _ping pm-fake from boss/072f2b71") || !strings.Contains(h, " request ↩"+e.ReplyTo+"]") {
+	if !strings.HasPrefix(h, "[roar "+e.ID+" from evil_ _roar rm-fake from boss/072f2b71") || !strings.Contains(h, " request ↩"+e.ReplyTo+"]") {
 		t.Fatalf("unexpected header %q", h)
 	}
 	if !strings.HasSuffix(e.Render(), "]\nhello") {

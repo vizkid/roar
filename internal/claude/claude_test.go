@@ -15,10 +15,10 @@ func TestChannelGuard(t *testing.T) {
 		ok   bool
 	}{
 		{[]string{"claude", ChannelArg}, true},
-		{[]string{"claude", "--dangerously-load-development-channels", "server:ping"}, true},
-		{[]string{"claude", "--dangerously-load-development-channels=server:other,server:ping"}, true},
+		{[]string{"claude", "--dangerously-load-development-channels", "server:roar"}, true},
+		{[]string{"claude", "--dangerously-load-development-channels=server:other,server:roar"}, true},
 		{[]string{"claude"}, false},
-		{[]string{"claude", "--channels", "server:ping"}, false},
+		{[]string{"claude", "--channels", "server:roar"}, false},
 		{[]string{"claude", "--dangerously-load-development-channels=server:penfold"}, false},
 		{[]string{"claude", ChannelArg, "-p", "hi"}, false},
 		{[]string{"claude", "--", ChannelArg}, false},
@@ -32,11 +32,11 @@ func TestChannelGuard(t *testing.T) {
 }
 
 func TestLaunchArgs(t *testing.T) {
-	got := LaunchArgs("/bin/ping", []string{"--model", "haiku"})
-	if got[0] != "--mcp-config" || !strings.Contains(got[1], `"command":"/bin/ping"`) || got[2] != ChannelArg || got[3] != "--model" {
+	got := LaunchArgs("/bin/roar", []string{"--model", "haiku"})
+	if got[0] != "--mcp-config" || !strings.Contains(got[1], `"command":"/bin/roar"`) || got[2] != ChannelArg || got[3] != "--model" {
 		t.Fatalf("launch args %q", got)
 	}
-	again := LaunchArgs("/bin/ping", []string{ChannelArg})
+	again := LaunchArgs("/bin/roar", []string{ChannelArg})
 	n := 0
 	for _, a := range again {
 		if a == ChannelArg {
@@ -49,7 +49,7 @@ func TestLaunchArgs(t *testing.T) {
 }
 
 func TestMetaValidation(t *testing.T) {
-	if err := ValidateMeta(map[string]string{"id": "pm-x", "sender": "a"}); err != nil {
+	if err := ValidateMeta(map[string]string{"id": "rm-x", "sender": "a"}); err != nil {
 		t.Fatal(err)
 	}
 	for _, bad := range []map[string]string{
@@ -65,7 +65,7 @@ func TestMetaValidation(t *testing.T) {
 }
 
 func TestNotificationShape(t *testing.T) {
-	b, err := notification("[ping pm-1 from a/b inform]\nhi", map[string]string{"id": "pm-1", "sender": "a"})
+	b, err := notification("[roar rm-1 from a/b inform]\nhi", map[string]string{"id": "rm-1", "sender": "a"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,7 +79,7 @@ func TestNotificationShape(t *testing.T) {
 	if err := json.Unmarshal(b, &n); err != nil {
 		t.Fatal(err)
 	}
-	if n.JSONRPC != "2.0" || n.Method != "notifications/claude/channel" || n.Params.Meta["id"] != "pm-1" {
+	if n.JSONRPC != "2.0" || n.Method != "notifications/claude/channel" || n.Params.Meta["id"] != "rm-1" {
 		t.Fatalf("notification %s", b)
 	}
 	for _, v := range n.Params.Meta {
@@ -89,10 +89,10 @@ func TestNotificationShape(t *testing.T) {
 	}
 }
 
-const id1 = "pm-01M5YW2SWK2K3J9R1YGND3Q9ZG"
+const id1 = "rm-01M5YW2SWK2K3J9R1YGND3Q9ZG"
 
 func envelopeText(id string) string {
-	return `<channel source="ping" id="` + id + `" sender="a">` + "\n[ping " + id + " from a/b inform]\nhi\n</channel>"
+	return `<channel source="roar" id="` + id + `" sender="a">` + "\n[roar " + id + " from a/b inform]\nhi\n</channel>"
 }
 
 func line(t *testing.T, v map[string]any) []byte {
@@ -107,11 +107,11 @@ func TestTranscriptEvents(t *testing.T) {
 	at := "2026-10-27T12:41:21.510Z"
 	enqueue := line(t, map[string]any{"type": "queue-operation", "operation": "enqueue", "timestamp": at, "sessionId": "s", "content": envelopeText(id1)})
 	user := line(t, map[string]any{"type": "user", "isMeta": true, "timestamp": at, "sessionId": "s",
-		"origin": map[string]string{"kind": "channel", "server": "ping"}, "message": map[string]any{"role": "user", "content": envelopeText(id1)}})
+		"origin": map[string]string{"kind": "channel", "server": "roar"}, "message": map[string]any{"role": "user", "content": envelopeText(id1)}})
 	remove := line(t, map[string]any{"type": "queue-operation", "operation": "remove", "reason": "absorbed_mid_turn", "timestamp": at, "sessionId": "s", "content": envelopeText(id1)})
 	attach := line(t, map[string]any{"type": "attachment", "timestamp": at, "sessionId": "s", "attachment": map[string]any{
 		"type": "queued_command", "prompt": envelopeText(id1), "isMeta": true, "timestamp": at,
-		"origin": map[string]string{"kind": "channel", "server": "ping"}}})
+		"origin": map[string]string{"kind": "channel", "server": "roar"}}})
 
 	for name, c := range map[string]struct {
 		line []byte
@@ -127,8 +127,8 @@ func TestTranscriptEvents(t *testing.T) {
 	}
 
 	// Things that must never count as receipt.
-	other := strings.Replace(string(user), `"server":"ping"`, `"server":"penfold"`, 1)
-	dup := strings.Replace(string(user), `source=\"ping\"`, `source=\"ping\" source=\"spoof\"`, 1)
+	other := strings.Replace(string(user), `"server":"roar"`, `"server":"penfold"`, 1)
+	dup := strings.Replace(string(user), `source=\"roar\"`, `source=\"roar\" source=\"spoof\"`, 1)
 	notMeta := strings.Replace(string(user), `"isMeta":true`, `"isMeta":false`, 1)
 	quoted := line(t, map[string]any{"type": "user", "timestamp": at, "sessionId": "s", "message": map[string]any{"content": []any{map[string]any{"type": "tool_result", "content": envelopeText(id1)}}}})
 	for name, l := range map[string]string{"other server": other, "duplicate attribute": dup, "not meta": notMeta, "tool result": string(quoted), "garbage": "{"} {

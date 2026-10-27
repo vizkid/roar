@@ -8,36 +8,36 @@ import (
 	"testing"
 	"time"
 
-	"github.com/vizkid/ping/internal/rextest"
-	"github.com/vizkid/ping/internal/store"
+	"github.com/vizkid/roar/internal/rextest"
+	"github.com/vizkid/roar/internal/store"
 )
 
-// TestLiveCodexChannel drives real Codex through `ping codex`. It needs
-// PING_LIVE=1 and PING_LIVE_DIR, and spends a few short model turns.
+// TestLiveCodexChannel drives real Codex through `roar codex`. It needs
+// ROAR_LIVE=1 and ROAR_LIVE_DIR, and spends a few short model turns.
 func TestLiveCodexChannel(t *testing.T) {
-	if os.Getenv("PING_LIVE") != "1" || os.Getenv("PING_LIVE_DIR") == "" {
-		t.Skip("set PING_LIVE=1 and PING_LIVE_DIR to run live agent tests")
+	if os.Getenv("ROAR_LIVE") != "1" || os.Getenv("ROAR_LIVE_DIR") == "" {
+		t.Skip("set ROAR_LIVE=1 and ROAR_LIVE_DIR to run live agent tests")
 	}
 	h := newHarness(t)
 	codexBin, err := exec.LookPath("codex")
 	if err != nil {
 		t.Skip("codex not on PATH")
 	}
-	pingBin := filepath.Join(t.TempDir(), "ping")
-	if b, err := exec.Command("go", "build", "-o", pingBin, "../../cmd/ping").CombinedOutput(); err != nil {
+	roarBin := filepath.Join(t.TempDir(), "roar")
+	if b, err := exec.Command("go", "build", "-o", roarBin, "../../cmd/roar").CombinedOutput(); err != nil {
 		t.Fatalf("build: %v %s", err, b)
 	}
-	cmd := []string{"env", "-C", os.Getenv("PING_LIVE_DIR"), "PING_HOME=" + h.home, "PING_CODEX_BIN=" + codexBin}
+	cmd := []string{"env", "-C", os.Getenv("ROAR_LIVE_DIR"), "ROAR_HOME=" + h.home, "ROAR_CODEX_BIN=" + codexBin}
 	if v := os.Getenv("CODEX_HOME"); v != "" {
 		cmd = append(cmd, "CODEX_HOME="+v)
 	}
 	label := rextest.Label("codex")
-	session, block := rextest.Session(t, h.rex, label, append(cmd, pingBin, "codex")...)
+	session, block := rextest.Session(t, h.rex, label, append(cmd, roarBin, "codex")...)
 	sender := h.pane("sender")
 	waitAgentRest(t, h, session, block)
 	st, _ := store.Open(h.home)
 	if !st.AdapterLive(block) {
-		t.Fatal("ping codex holds no adapter lock")
+		t.Fatal("roar codex holds no adapter lock")
 	}
 	screen := func() string {
 		b, _ := h.rex.Run(t.Context(), "capture", "-s", session, "-b", block, "--trim")
@@ -60,7 +60,7 @@ func TestLiveCodexChannel(t *testing.T) {
 	}
 
 	// 1. Idle: a new turn.
-	id := h.must(sender, "send", label, "Ping live test one: reply with the word OK only.")
+	id := h.must(sender, "send", label, "Roar live test one: reply with the word OK only.")
 	if rec := settle(id); rec.Proof != "codex_turn_start" {
 		t.Fatalf("idle receipt %+v", rec)
 	}
@@ -73,7 +73,7 @@ func TestLiveCodexChannel(t *testing.T) {
 		s, _ := h.rex.ProgramStatus(t.Context(), session, block)
 		return s != nil && s.State == "working"
 	})
-	steer := h.must(sender, "send", label, "Ping live test steer: after END, also write STEERED.")
+	steer := h.must(sender, "send", label, "Roar live test steer: after END, also write STEERED.")
 	if rec := settle(steer); rec.Proof != "codex_turn_steer" || rec.Boundary != "mid_turn" {
 		t.Logf("second message receipt %+v (a turn that ended first is a turn/start)", rec)
 	}
@@ -85,9 +85,9 @@ func TestLiveCodexChannel(t *testing.T) {
 	h.rex.Run(t.Context(), "send-key", "-s", session, "-b", block, "enter")
 	time.Sleep(3 * time.Second)
 	waitAgentRest(t, h, session, block)
-	id = h.must(sender, "send", label, "Ping live test after new: reply with the word FRESH only.")
+	id = h.must(sender, "send", label, "Roar live test after new: reply with the word FRESH only.")
 	settle(id)
-	if !waitFor(30*time.Second, func() bool { return strings.Contains(screen(), "Ping live test after new") }) {
+	if !waitFor(30*time.Second, func() bool { return strings.Contains(screen(), "Roar live test after new") }) {
 		t.Fatalf("message after /new is not in the visible thread:\n%s", screen())
 	}
 	t.Logf("settled pane:\n%s", screen())

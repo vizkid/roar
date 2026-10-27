@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/vizkid/ping/internal/envelope"
-	"github.com/vizkid/ping/internal/store"
+	"github.com/vizkid/roar/internal/envelope"
+	"github.com/vizkid/roar/internal/store"
 )
 
 type statusRow struct {
@@ -60,7 +60,7 @@ func cmdStatus(ctx context.Context, env Env, args []string) error {
 			return strings.ReplaceAll(s, " ", "_")
 		}
 		for _, r := range rows {
-			fmt.Fprintf(env.Stdout, "PING-STATUS %s %s %s %s %s\n", r.ID, r.State, dash(r.Detail), dash(r.Proof), dash(r.Boundary))
+			fmt.Fprintf(env.Stdout, "ROAR-STATUS %s %s %s %s %s\n", r.ID, r.State, dash(r.Detail), dash(r.Proof), dash(r.Boundary))
 		}
 		return nil
 	}
@@ -137,7 +137,7 @@ func cmdWithdraw(ctx context.Context, env Env, args []string) error {
 		return err
 	}
 	if len(pos) != 1 {
-		return usageErr("ping withdraw <id>")
+		return usageErr("roar withdraw <id>")
 	}
 	me, err := self(ctx, env)
 	if err != nil {
@@ -162,7 +162,7 @@ func cmdResolve(ctx context.Context, env Env, args []string) error {
 		return err
 	}
 	if len(pos) != 1 || *read == *requeue {
-		return usageErr("ping resolve <id> --read|--requeue")
+		return usageErr("roar resolve <id> --read|--requeue")
 	}
 	st, err := openStore(env)
 	if err != nil {

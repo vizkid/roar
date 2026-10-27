@@ -29,7 +29,7 @@ type fakeServer struct {
 }
 
 func newFakeServer(t *testing.T) *fakeServer {
-	dir, _ := os.MkdirTemp("/tmp", "ping-fake-")
+	dir, _ := os.MkdirTemp("/tmp", "roar-fake-")
 	t.Cleanup(func() { os.RemoveAll(dir) })
 	s := &fakeServer{t: t, sock: filepath.Join(dir, "server.sock"), hold: make(chan struct{})}
 	ln, err := net.Listen("unix", s.sock)

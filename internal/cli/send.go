@@ -9,9 +9,9 @@ import (
 	"os"
 	"strings"
 
-	"github.com/vizkid/ping/internal/envelope"
-	"github.com/vizkid/ping/internal/rex"
-	"github.com/vizkid/ping/internal/store"
+	"github.com/vizkid/roar/internal/envelope"
+	"github.com/vizkid/roar/internal/rex"
+	"github.com/vizkid/roar/internal/store"
 )
 
 func cmdSend(ctx context.Context, env Env, args []string) error {
@@ -85,7 +85,7 @@ func cmdSend(ctx context.Context, env Env, args []string) error {
 	// One delivery pass. A native adapter, if one serves the pane, has
 	// already seen the new message; the fallback stands aside for it.
 	if _, err := deliverer(env, st).Block(ctx, to.Block); err != nil {
-		fmt.Fprintf(env.Stderr, "ping: delivery pass: %v\n", err)
+		fmt.Fprintf(env.Stderr, "roar: delivery pass: %v\n", err)
 	}
 	m, err := st.Get(e.ID)
 	if err != nil {
@@ -104,7 +104,7 @@ func recipient(ctx context.Context, env Env, st *store.Store, from envelope.Addr
 		return orig.Envelope.From, pos, nil
 	}
 	if len(pos) == 0 {
-		return envelope.Address{}, nil, usageErr("ping send <target> [text]")
+		return envelope.Address{}, nil, usageErr("roar send <target> [text]")
 	}
 	host, target, err := splitHost(ctx, env.Rex, pos[0])
 	if err != nil {

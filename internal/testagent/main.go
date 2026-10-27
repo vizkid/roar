@@ -1,4 +1,4 @@
-// Command testagent imitates an agent's composer for Ping's tests. Built as
+// Command testagent imitates an agent's composer for Roar's tests. Built as
 // "claude" or "codex", it draws that agent's composer and reports program
 // status (OSC 7501) like the real agent, so fallback tests can run in real
 // Rex panes without model calls.

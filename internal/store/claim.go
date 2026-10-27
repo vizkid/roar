@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/vizkid/ping/internal/envelope"
+	"github.com/vizkid/roar/internal/envelope"
 )
 
 // Claim is exclusive ownership of one message for the length of an attempt.
@@ -111,7 +111,7 @@ func (s *Store) AdapterLive(block string) bool {
 	return false
 }
 
-// RecordSent keeps routing details for the sender's `ping status`.
+// RecordSent keeps routing details for the sender's `roar status`.
 func (s *Store) RecordSent(e envelope.Envelope) error {
 	if !envelope.ValidID(e.ID) {
 		return fmt.Errorf("invalid message id %q", e.ID)
@@ -122,7 +122,7 @@ func (s *Store) RecordSent(e envelope.Envelope) error {
 
 // Sent lists envelopes (without bodies) sent from one block, oldest first.
 func (s *Store) Sent(fromBlock string) ([]envelope.Envelope, error) {
-	files, err := filepath.Glob(filepath.Join(s.root, "sent", "pm-*.json"))
+	files, err := filepath.Glob(filepath.Join(s.root, "sent", "rm-*.json"))
 	if err != nil {
 		return nil, err
 	}

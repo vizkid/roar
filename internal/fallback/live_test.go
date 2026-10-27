@@ -6,22 +6,22 @@ import (
 	"testing"
 	"time"
 
-	"github.com/vizkid/ping/internal/rextest"
-	"github.com/vizkid/ping/internal/store"
+	"github.com/vizkid/roar/internal/rextest"
+	"github.com/vizkid/roar/internal/store"
 )
 
-// Live tests drive real Claude Code and Codex. They need PING_LIVE=1 and
-// PING_LIVE_DIR, a directory both agents already trust (Claude shows a
+// Live tests drive real Claude Code and Codex. They need ROAR_LIVE=1 and
+// ROAR_LIVE_DIR, a directory both agents already trust (Claude shows a
 // folder-trust dialog in a new directory, and the proof rightly waits on it).
 // Each test spends one trivial model turn.
 
 func liveDir(t *testing.T) string {
-	if os.Getenv("PING_LIVE") != "1" {
-		t.Skip("set PING_LIVE=1 to run live agent tests")
+	if os.Getenv("ROAR_LIVE") != "1" {
+		t.Skip("set ROAR_LIVE=1 to run live agent tests")
 	}
-	dir := os.Getenv("PING_LIVE_DIR")
+	dir := os.Getenv("ROAR_LIVE_DIR")
 	if dir == "" {
-		t.Skip("set PING_LIVE_DIR to a directory the agents trust")
+		t.Skip("set ROAR_LIVE_DIR to a directory the agents trust")
 	}
 	return dir
 }
@@ -62,11 +62,11 @@ func liveAgent(t *testing.T, f *fixture, dir string, cmd ...string) (session, bl
 
 func liveDeliver(t *testing.T, f *fixture, session, block string) {
 	t.Helper()
-	e := f.queue(session, block, "Ping live test: reply with the word OK only.")
+	e := f.queue(session, block, "Roar live test: reply with the word OK only.")
 	want(t, f.attempt(e.ID), store.Submitted, "")
 	time.Sleep(3 * time.Second)
 	screen, _ := f.rex.Run(t.Context(), "capture", "-s", session, "-b", block, "--trim")
-	if !strings.Contains(string(screen), "Ping live test") {
+	if !strings.Contains(string(screen), "Roar live test") {
 		t.Fatalf("message not on screen:\n%s", screen)
 	}
 	t.Logf("settled pane:\n%s", screen)

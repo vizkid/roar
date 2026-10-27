@@ -10,10 +10,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/vizkid/ping/internal/envelope"
-	"github.com/vizkid/ping/internal/rex"
-	"github.com/vizkid/ping/internal/rextest"
-	"github.com/vizkid/ping/internal/store"
+	"github.com/vizkid/roar/internal/envelope"
+	"github.com/vizkid/roar/internal/rex"
+	"github.com/vizkid/roar/internal/rextest"
+	"github.com/vizkid/roar/internal/store"
 )
 
 // These tests send through the cross-host path to the local Rex server: the
@@ -28,8 +28,8 @@ type fixture struct {
 func setup(t *testing.T) *fixture {
 	c := rextest.Require(t)
 	dir := t.TempDir()
-	bin := filepath.Join(dir, "ping")
-	if b, err := exec.Command("go", "build", "-o", bin, "../../cmd/ping").CombinedOutput(); err != nil {
+	bin := filepath.Join(dir, "roar")
+	if b, err := exec.Command("go", "build", "-o", bin, "../../cmd/roar").CombinedOutput(); err != nil {
 		t.Fatalf("build: %v %s", err, b)
 	}
 	home := filepath.Join(dir, "home")
@@ -40,7 +40,7 @@ func setup(t *testing.T) *fixture {
 	label := rextest.Label("dest")
 	session, block := rextest.Session(t, c, label, "sleep", "600")
 	w, _ := c.Whoami(t.Context())
-	h := Host{Rex: c, Bin: bin, Env: []string{"PING_HOME=" + home}, Session: label + "-ping"}
+	h := Host{Rex: c, Bin: bin, Env: []string{"ROAR_HOME=" + home}, Session: label + "-roar"}
 	t.Cleanup(func() { killLabel(c, h.Session) })
 	return &fixture{host: h, st: st, to: envelope.Address{HostID: w.HostID, Session: session, Block: block, Label: label}}
 }
@@ -106,7 +106,7 @@ func TestEnqueueRefusesAnotherHostsMessage(t *testing.T) {
 
 func TestMissingPingOnHost(t *testing.T) {
 	f := setup(t)
-	f.host.Bin = "/nonexistent/ping"
+	f.host.Bin = "/nonexistent/roar"
 	if _, err := f.host.Enqueue(t.Context(), f.env("x")); !errors.Is(err, ErrNoPing) {
 		t.Fatalf("err %v", err)
 	}
@@ -114,7 +114,7 @@ func TestMissingPingOnHost(t *testing.T) {
 
 func TestRunOpensNoWindow(t *testing.T) {
 	f := setup(t)
-	f.host.Enqueue(t.Context(), f.env("warm up")) // creates the ping session
+	f.host.Enqueue(t.Context(), f.env("warm up")) // creates the roar session
 	windows := func() int {
 		ss, _ := f.host.Rex.Sessions(t.Context())
 		for _, s := range ss {

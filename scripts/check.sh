@@ -1,5 +1,5 @@
 #!/bin/sh
-# Runs every regression check. Live tests run only with PING_LIVE=1.
+# Runs every regression check. Live tests run only with ROAR_LIVE=1.
 set -eu
 cd "$(dirname "$0")/.."
 

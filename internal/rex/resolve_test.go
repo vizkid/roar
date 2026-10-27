@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/vizkid/ping/internal/rex"
-	"github.com/vizkid/ping/internal/rextest"
+	"github.com/vizkid/roar/internal/rex"
+	"github.com/vizkid/roar/internal/rextest"
 )
 
 func ctx(t *testing.T) context.Context {

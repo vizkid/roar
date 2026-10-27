@@ -1,12 +1,12 @@
-// Command ping routes messages between Rex panes.
+// Command roar routes messages between Rex panes.
 package main
 
 import (
 	"os"
 	"time"
 
-	"github.com/vizkid/ping/internal/cli"
-	"github.com/vizkid/ping/internal/rex"
+	"github.com/vizkid/roar/internal/cli"
+	"github.com/vizkid/roar/internal/rex"
 )
 
 func main() {

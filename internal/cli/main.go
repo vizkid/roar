@@ -1,4 +1,4 @@
-// Package cli implements the ping commands.
+// Package cli implements the roar commands.
 package cli
 
 import (
@@ -13,8 +13,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/vizkid/ping/internal/rex"
-	"github.com/vizkid/ping/internal/store"
+	"github.com/vizkid/roar/internal/rex"
+	"github.com/vizkid/roar/internal/store"
 )
 
 // Env is everything a command touches outside its arguments, so tests can
@@ -31,7 +31,7 @@ type Env struct {
 // Exit codes shared by every command.
 const (
 	exitOK      = 0
-	exitWait    = 1 // only `ping ready`: not ready yet
+	exitWait    = 1 // only `roar ready`: not ready yet
 	exitRefused = 2
 )
 
@@ -53,7 +53,7 @@ var commands = map[string]command{
 	"install":  cmdInstall,
 }
 
-const usage = `usage: ping <command> [args]
+const usage = `usage: roar <command> [args]
 
   send <target> [text]       store a message and try to deliver it (stdin when no text)
   inbox                      list messages waiting for this pane
@@ -63,10 +63,10 @@ const usage = `usage: ping <command> [args]
   resolve <id> --read|--requeue   settle a message in state unknown
   ready <target>             is the pane's agent at rest with an empty composer? (exit 0 yes, 1 wait, 2 never)
   deliver [target...] [--watch]   type held messages into panes that are ready
-  claude [args...]           run Claude Code with the Ping channel loaded
-  codex [args...]            run Codex behind the Ping proxy
-  install <host-label>       copy this ping to ~/.local/bin on another Rex host
-  enqueue --sha256 <digest>  receive a message from another host (Ping runs this itself)
+  claude [args...]           run Claude Code with the Roar channel loaded
+  codex [args...]            run Codex behind the Roar proxy
+  install <host-label>       copy this roar to ~/.local/bin on another Rex host
+  enqueue --sha256 <digest>  receive a message from another host (Roar runs this itself)
   mcp                        the Claude adapter (Claude starts it; do not run it yourself)
 `
 
@@ -78,7 +78,7 @@ func Main(args []string, env Env) int {
 	}
 	cmd, ok := commands[args[0]]
 	if !ok {
-		fmt.Fprintf(env.Stderr, "ping: unknown_command: %q\n%s", args[0], usage)
+		fmt.Fprintf(env.Stderr, "roar: unknown_command: %q\n%s", args[0], usage)
 		return exitRefused
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
@@ -91,7 +91,7 @@ func Main(args []string, env Env) int {
 	case errors.As(err, &silent):
 		return int(silent)
 	default:
-		fmt.Fprintf(env.Stderr, "ping: %v\n", err)
+		fmt.Fprintf(env.Stderr, "roar: %v\n", err)
 		return exitRefused
 	}
 }
@@ -103,7 +103,7 @@ func watchContext(ctx context.Context) context.Context {
 }
 
 func openStore(env Env) (*store.Store, error) {
-	root := env.Getenv("PING_HOME")
+	root := env.Getenv("ROAR_HOME")
 	if root == "" {
 		var err error
 		if root, err = defaultRoot(env); err != nil {
@@ -115,10 +115,10 @@ func openStore(env Env) (*store.Store, error) {
 
 func defaultRoot(env Env) (string, error) {
 	if v := env.Getenv("XDG_STATE_HOME"); v != "" {
-		return v + "/ping", nil
+		return v + "/roar", nil
 	}
 	if v := env.Getenv("HOME"); v != "" {
-		return v + "/.local/state/ping", nil
+		return v + "/.local/state/roar", nil
 	}
 	return store.DefaultRoot()
 }

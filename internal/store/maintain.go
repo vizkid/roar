@@ -36,7 +36,7 @@ func (s *Store) Prune(now time.Time) error {
 			return err
 		}
 	}
-	sent, _ := filepath.Glob(filepath.Join(s.root, "sent", "pm-*.json"))
+	sent, _ := filepath.Glob(filepath.Join(s.root, "sent", "rm-*.json"))
 	for _, f := range sent {
 		if info, err := os.Stat(f); err == nil && now.Sub(info.ModTime()) > Retention {
 			os.Remove(f)

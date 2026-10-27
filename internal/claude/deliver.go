@@ -9,8 +9,8 @@ import (
 	"os"
 	"time"
 
-	"github.com/vizkid/ping/internal/envelope"
-	"github.com/vizkid/ping/internal/store"
+	"github.com/vizkid/roar/internal/envelope"
+	"github.com/vizkid/roar/internal/store"
 )
 
 // deliverer writes queued messages as channel notifications and turns
@@ -100,7 +100,7 @@ func (d *deliverer) write(m store.Message) {
 	e := c.Message().Envelope
 	line, err := notification(c.Message().Render(), map[string]string{"id": e.ID, "sender": envelope.Sanitize(e.From.Label)})
 	if err != nil {
-		fmt.Fprintf(d.cfg.Log, "ping mcp: %s: %v\n", e.ID, err)
+		fmt.Fprintf(d.cfg.Log, "roar mcp: %s: %v\n", e.ID, err)
 		return
 	}
 	// Record the write first: a crash after the write must not look queued.
@@ -109,7 +109,7 @@ func (d *deliverer) write(m store.Message) {
 		return
 	}
 	if err := d.w.line(line); err != nil {
-		fmt.Fprintf(d.cfg.Log, "ping mcp: writing %s: %v\n", e.ID, err)
+		fmt.Fprintf(d.cfg.Log, "roar mcp: writing %s: %v\n", e.ID, err)
 	}
 }
 
@@ -205,6 +205,6 @@ func (d *deliverer) move(id string, to store.State, edit func(*store.Record)) {
 		return
 	}
 	if err := c.Move(to, d.cfg.Now(), edit); err != nil {
-		fmt.Fprintf(d.cfg.Log, "ping mcp: %v\n", err)
+		fmt.Fprintf(d.cfg.Log, "roar mcp: %v\n", err)
 	}
 }

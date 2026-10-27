@@ -7,7 +7,7 @@ import (
 	"io"
 	"time"
 
-	"github.com/vizkid/ping/internal/store"
+	"github.com/vizkid/roar/internal/store"
 )
 
 // DeliverTimeout bounds one injected turn call.
@@ -100,7 +100,7 @@ func (a *Adapter) deliver(ctx context.Context, id string) bool {
 	case errors.Is(err, ErrNotReady):
 		c.Move(store.Queued, a.Now(), func(rec *store.Record) { rec.HoldReason = "codex_not_ready" })
 	case errors.Is(err, ErrRejected):
-		fmt.Fprintf(a.Log, "ping codex: %s: %v\n", id, err)
+		fmt.Fprintf(a.Log, "roar codex: %s: %v\n", id, err)
 		c.Move(store.Queued, a.Now(), func(rec *store.Record) { rec.HoldReason, rec.Reason = "codex_rejected", err.Error() })
 	default:
 		c.Move(store.Unknown, a.Now(), func(rec *store.Record) { rec.Reason = err.Error() })

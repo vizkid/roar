@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/vizkid/ping/internal/envelope"
-	"github.com/vizkid/ping/internal/store"
+	"github.com/vizkid/roar/internal/envelope"
+	"github.com/vizkid/roar/internal/store"
 )
 
 // fakeClaude plays Claude's side of the MCP pipe and its transcript.
@@ -97,10 +97,10 @@ func (f *fakeClaude) record(kind, id string) {
 		v = map[string]any{"type": "queue-operation", "operation": kind, "timestamp": now, "sessionId": "s", "content": text}
 	case "user":
 		v = map[string]any{"type": "user", "isMeta": true, "timestamp": now, "sessionId": "s",
-			"origin": map[string]string{"kind": "channel", "server": "ping"}, "message": map[string]any{"content": text}}
+			"origin": map[string]string{"kind": "channel", "server": "roar"}, "message": map[string]any{"content": text}}
 	case "attachment":
 		v = map[string]any{"type": "attachment", "timestamp": now, "sessionId": "s", "attachment": map[string]any{
-			"type": "queued_command", "prompt": text, "isMeta": true, "origin": map[string]string{"kind": "channel", "server": "ping"}}}
+			"type": "queued_command", "prompt": text, "isMeta": true, "origin": map[string]string{"kind": "channel", "server": "roar"}}}
 	}
 	b, _ := json.Marshal(v)
 	fh, _ := os.OpenFile(f.transcript, os.O_APPEND|os.O_WRONLY, 0o600)
@@ -172,7 +172,7 @@ func TestDeliverAcceptReceive(t *testing.T) {
 	}
 	id := put(t, st, envelope.Inform)
 	n := f.note(3 * time.Second)
-	if noteID(n) != id || !strings.Contains(n["params"].(map[string]any)["content"].(string), "[ping "+id) {
+	if noteID(n) != id || !strings.Contains(n["params"].(map[string]any)["content"].(string), "[roar "+id) {
 		t.Fatalf("notification %v", n)
 	}
 	waitState(t, st, id, store.Written)

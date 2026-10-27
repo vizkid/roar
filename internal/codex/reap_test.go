@@ -11,7 +11,7 @@ import (
 )
 
 func TestReapStopsServerOfDeadOwner(t *testing.T) {
-	dir, err := os.MkdirTemp("/tmp", "ping-codex-")
+	dir, err := os.MkdirTemp("/tmp", "roar-codex-")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -45,7 +45,7 @@ func TestReapStopsServerOfDeadOwner(t *testing.T) {
 }
 
 func TestReapLeavesLiveOwnersAlone(t *testing.T) {
-	dir, _ := os.MkdirTemp("/tmp", "ping-codex-")
+	dir, _ := os.MkdirTemp("/tmp", "roar-codex-")
 	defer os.RemoveAll(dir)
 	writeOwner(dir, 999999)
 	ReapOrphans()

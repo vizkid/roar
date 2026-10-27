@@ -7,9 +7,9 @@ import (
 	"os"
 	"strings"
 
-	"github.com/vizkid/ping/internal/envelope"
-	"github.com/vizkid/ping/internal/remote"
-	"github.com/vizkid/ping/internal/rex"
+	"github.com/vizkid/roar/internal/envelope"
+	"github.com/vizkid/roar/internal/remote"
+	"github.com/vizkid/roar/internal/rex"
 )
 
 // splitHost separates a "host-label:" prefix that names a Rex host. Block
@@ -41,7 +41,7 @@ func splitHost(ctx context.Context, c rex.Client, target string) (host, rest str
 func remoteHost(env Env, server string) remote.Host {
 	c := env.Rex
 	c.Server = server
-	return remote.Host{Rex: c, Bin: env.Getenv("PING_REMOTE_BIN")}
+	return remote.Host{Rex: c, Bin: env.Getenv("ROAR_REMOTE_BIN")}
 }
 
 // sendRemote hands the envelope to the recipient's host. A lost answer is
@@ -63,10 +63,10 @@ func sendRemote(ctx context.Context, env Env, e envelope.Envelope, files map[str
 	return remote.Result{}, lastErr
 }
 
-// cmdInstall copies this ping binary to a Rex host's ~/.local/bin.
+// cmdInstall copies this roar binary to a Rex host's ~/.local/bin.
 func cmdInstall(ctx context.Context, env Env, args []string) error {
 	if len(args) != 1 {
-		return usageErr("ping install <host-label>")
+		return usageErr("roar install <host-label>")
 	}
 	self, err := os.Executable()
 	if err != nil {

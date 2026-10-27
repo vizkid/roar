@@ -1,4 +1,4 @@
-// Package codex is Ping's native adapter for Codex: a WebSocket proxy
+// Package codex is Roar's native adapter for Codex: a WebSocket proxy
 // between the Codex TUI and its App Server that injects turns into the
 // thread the TUI shows.
 package codex
@@ -18,7 +18,7 @@ import (
 
 // idPrefix marks the proxy's own requests. Their responses never reach the
 // TUI, and a TUI frame using the prefix closes its connection.
-const idPrefix = "ping:"
+const idPrefix = "roar:"
 
 var (
 	// ErrNotReady: no bound thread, or the TUI is switching threads. Nothing was sent.

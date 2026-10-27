@@ -7,9 +7,9 @@ import (
 	"errors"
 	"time"
 
-	"github.com/vizkid/ping/internal/ready"
-	"github.com/vizkid/ping/internal/rex"
-	"github.com/vizkid/ping/internal/store"
+	"github.com/vizkid/roar/internal/ready"
+	"github.com/vizkid/roar/internal/rex"
+	"github.com/vizkid/roar/internal/store"
 )
 
 // SubmitWait is how long to wait for the agent to start a turn after Enter.
@@ -55,7 +55,7 @@ func (d *Deliverer) Attempt(ctx context.Context, id string) (Outcome, error) {
 		return outcome(c.Message()), err
 	case r.Verdict != ready.Empty:
 		// A pane running something else may start an agent later, and its
-		// user can still read the message with `ping inbox`.
+		// user can still read the message with `roar inbox`.
 		return d.hold(c, r.Reason)
 	}
 	return d.typeMessage(ctx, c, r.PID)

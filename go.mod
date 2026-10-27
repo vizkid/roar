@@ -1,4 +1,4 @@
-module github.com/vizkid/ping
+module github.com/vizkid/roar
 
 go 1.26.5
 

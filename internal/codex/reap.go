@@ -11,7 +11,7 @@ import (
 )
 
 // The App Server runs in its own process group, so a pane hangup does not
-// reach it. `ping codex` stops it on SIGHUP and SIGTERM, but nothing can
+// reach it. `roar codex` stops it on SIGHUP and SIGTERM, but nothing can
 // clean up after SIGKILL. Each launch therefore records its owner, and the
 // next launch reaps servers whose owner died.
 
@@ -21,10 +21,10 @@ func writeOwner(dir string, serverPGID int) error {
 	return os.WriteFile(filepath.Join(dir, ownerFile), fmt.Appendf(nil, "%d %d\n", os.Getpid(), serverPGID), 0o600)
 }
 
-// ReapOrphans stops App Servers left by dead `ping codex` processes and
+// ReapOrphans stops App Servers left by dead `roar codex` processes and
 // removes their directories. It returns how many it reaped.
 func ReapOrphans() int {
-	dirs, _ := filepath.Glob("/tmp/ping-codex-*")
+	dirs, _ := filepath.Glob("/tmp/roar-codex-*")
 	n := 0
 	for _, dir := range dirs {
 		var owner, pgid int

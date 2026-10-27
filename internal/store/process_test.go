@@ -13,11 +13,11 @@ import (
 // Tests in this file run real child processes, because file locks and crash
 // recovery only mean something across processes.
 
-const helperEnv = "PING_STORE_HELPER"
+const helperEnv = "ROAR_STORE_HELPER"
 
 func TestMain(m *testing.M) {
 	if mode := os.Getenv(helperEnv); mode != "" {
-		os.Exit(helper(mode, os.Getenv("PING_HOME"), os.Getenv("PING_ID")))
+		os.Exit(helper(mode, os.Getenv("ROAR_HOME"), os.Getenv("ROAR_ID")))
 	}
 	os.Exit(m.Run())
 }
@@ -70,7 +70,7 @@ func helper(mode, root, id string) int {
 func child(t *testing.T, root, mode, id string) *exec.Cmd {
 	t.Helper()
 	cmd := exec.Command(os.Args[0], "-test.run=^$")
-	cmd.Env = append(os.Environ(), helperEnv+"="+mode, "PING_HOME="+root, "PING_ID="+id)
+	cmd.Env = append(os.Environ(), helperEnv+"="+mode, "ROAR_HOME="+root, "ROAR_ID="+id)
 	return cmd
 }
 

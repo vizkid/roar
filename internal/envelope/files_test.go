@@ -40,9 +40,9 @@ func TestUniqueNames(t *testing.T) {
 func TestRenderListsAttachedPaths(t *testing.T) {
 	e := valid()
 	e.Files = []File{FileFor("a.txt", []byte("12345"))}
-	out := e.RenderIn("/store/box/b/pm-x")
+	out := e.RenderIn("/store/box/b/rm-x")
 	lines := strings.Split(out, "\n")
-	if lines[1] != "attached: /store/box/b/pm-x/files/a.txt (5 bytes)" || !strings.HasSuffix(out, "\nhello") {
+	if lines[1] != "attached: /store/box/b/rm-x/files/a.txt (5 bytes)" || !strings.HasSuffix(out, "\nhello") {
 		t.Fatalf("render %q", out)
 	}
 	if strings.Contains(e.Render(), "attached:") {

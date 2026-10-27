@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/vizkid/ping/internal/envelope"
+	"github.com/vizkid/roar/internal/envelope"
 )
 
 func TestPutWithFilesStoresContents(t *testing.T) {

@@ -3,7 +3,7 @@
 package ready
 
 import (
-	"github.com/vizkid/ping/internal/rex"
+	"github.com/vizkid/roar/internal/rex"
 )
 
 // Verdict is the outcome of the proof.

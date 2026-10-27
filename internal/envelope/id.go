@@ -10,14 +10,14 @@ import (
 
 const crockford = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
 
-// NewID returns a time-ordered ID: "pm-" and a 26-character ULID.
+// NewID returns a time-ordered ID: "rm-" and a 26-character ULID.
 func NewID(now time.Time) string {
 	var b [16]byte
 	binary.BigEndian.PutUint64(b[:8], uint64(now.UnixMilli())<<16)
 	if _, err := rand.Read(b[6:]); err != nil {
 		panic(err) // crypto/rand never fails on supported platforms
 	}
-	return "pm-" + encode(b)
+	return "rm-" + encode(b)
 }
 
 // KeyedID derives the ID for a send that carries an idempotency key, so a
@@ -26,13 +26,13 @@ func KeyedID(hostID, fromBlock, key string) string {
 	sum := sha256.Sum256([]byte(hostID + "\x00" + fromBlock + "\x00" + key))
 	var b [16]byte
 	copy(b[:], sum[:16])
-	return "pm-k" + encode(b)[1:]
+	return "rm-k" + encode(b)[1:]
 }
 
 // ValidID reports whether id has the shape NewID or KeyedID produce.
 // The check keeps IDs safe to use as file names.
 func ValidID(id string) bool {
-	rest, ok := strings.CutPrefix(id, "pm-")
+	rest, ok := strings.CutPrefix(id, "rm-")
 	if !ok || len(rest) != 26 {
 		return false
 	}

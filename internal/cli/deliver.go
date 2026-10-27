@@ -5,10 +5,10 @@ import (
 	"flag"
 	"fmt"
 
-	"github.com/vizkid/ping/internal/fallback"
-	"github.com/vizkid/ping/internal/ready"
-	"github.com/vizkid/ping/internal/rex"
-	"github.com/vizkid/ping/internal/store"
+	"github.com/vizkid/roar/internal/fallback"
+	"github.com/vizkid/roar/internal/ready"
+	"github.com/vizkid/roar/internal/rex"
+	"github.com/vizkid/roar/internal/store"
 )
 
 func deliverer(env Env, st *store.Store) *fallback.Deliverer {
@@ -23,7 +23,7 @@ func cmdReady(ctx context.Context, env Env, args []string) error {
 		return err
 	}
 	if len(pos) != 1 {
-		return usageErr("ping ready <target>")
+		return usageErr("roar ready <target>")
 	}
 	to, err := rex.Resolve(ctx, env.Rex, pos[0])
 	if err != nil {
@@ -63,7 +63,7 @@ func cmdDeliver(ctx context.Context, env Env, args []string) error {
 	d := deliverer(env, st)
 	if *watch {
 		if len(targets) > 0 {
-			return usageErr("ping deliver --watch takes no targets")
+			return usageErr("roar deliver --watch takes no targets")
 		}
 		return d.Watch(watchContext(ctx))
 	}

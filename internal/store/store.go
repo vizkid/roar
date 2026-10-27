@@ -10,7 +10,7 @@ import (
 	"sort"
 	"time"
 
-	"github.com/vizkid/ping/internal/envelope"
+	"github.com/vizkid/roar/internal/envelope"
 )
 
 var (
@@ -41,19 +41,19 @@ type Message struct {
 	Dir      string
 }
 
-// DefaultRoot is $PING_HOME, else $XDG_STATE_HOME/ping, else ~/.local/state/ping.
+// DefaultRoot is $ROAR_HOME, else $XDG_STATE_HOME/roar, else ~/.local/state/roar.
 func DefaultRoot() (string, error) {
-	if v := os.Getenv("PING_HOME"); v != "" {
+	if v := os.Getenv("ROAR_HOME"); v != "" {
 		return v, nil
 	}
 	if v := os.Getenv("XDG_STATE_HOME"); v != "" {
-		return filepath.Join(v, "ping"), nil
+		return filepath.Join(v, "roar"), nil
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(home, ".local", "state", "ping"), nil
+	return filepath.Join(home, ".local", "state", "roar"), nil
 }
 
 // Open creates the directory layout if needed.

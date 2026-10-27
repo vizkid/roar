@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/vizkid/ping/internal/envelope"
-	"github.com/vizkid/ping/internal/rex"
-	"github.com/vizkid/ping/internal/rextest"
-	"github.com/vizkid/ping/internal/store"
+	"github.com/vizkid/roar/internal/envelope"
+	"github.com/vizkid/roar/internal/rex"
+	"github.com/vizkid/roar/internal/rextest"
+	"github.com/vizkid/roar/internal/store"
 )
 
 // pane is one throwaway Rex pane that commands can run "inside".
@@ -37,10 +37,10 @@ func (h *harness) pane(name string) pane {
 	return pane{label, s, b}
 }
 
-// run executes one ping command as if typed in pane p.
+// run executes one roar command as if typed in pane p.
 func (h *harness) run(p pane, stdin string, args ...string) (code int, stdout, stderr string) {
 	var out, errb bytes.Buffer
-	vars := map[string]string{"PING_HOME": h.home, "REX_SESSION": p.session, "REX_BLOCK": p.block}
+	vars := map[string]string{"ROAR_HOME": h.home, "REX_SESSION": p.session, "REX_BLOCK": p.block}
 	code = Main(args, Env{
 		Stdin:  strings.NewReader(stdin),
 		Stdout: &out,
@@ -56,7 +56,7 @@ func (h *harness) must(p pane, args ...string) string {
 	h.t.Helper()
 	code, out, errs := h.run(p, "", args...)
 	if code != 0 {
-		h.t.Fatalf("ping %v: exit %d: %s", args, code, errs)
+		h.t.Fatalf("roar %v: exit %d: %s", args, code, errs)
 	}
 	return strings.TrimSpace(out)
 }
@@ -66,7 +66,7 @@ func TestSendInboxReadStatus(t *testing.T) {
 	alice, bob := h.pane("alice"), h.pane("bob")
 
 	id := h.must(alice, "send", bob.label, "hello", "bob")
-	if !strings.HasPrefix(id, "pm-") {
+	if !strings.HasPrefix(id, "rm-") {
 		t.Fatalf("send printed %q", id)
 	}
 	inbox := h.must(bob, "inbox")
@@ -78,7 +78,7 @@ func TestSendInboxReadStatus(t *testing.T) {
 	}
 
 	body := h.must(bob, "read", id)
-	if !strings.HasPrefix(body, "[ping "+id+" from "+alice.label+"/") || !strings.HasSuffix(body, "\nhello bob") {
+	if !strings.HasPrefix(body, "[roar "+id+" from "+alice.label+"/") || !strings.HasSuffix(body, "\nhello bob") {
 		t.Fatalf("read printed %q", body)
 	}
 	if code, _, _ := h.run(alice, "", "read", id, "--mark"); code != 2 {
@@ -124,7 +124,7 @@ func TestRefusals(t *testing.T) {
 	h := newHarness(t)
 	a := h.pane("a")
 	code, _, errs := h.run(a, "", "send", rextest.Label("nobody"), "hi")
-	if code != 2 || !strings.HasPrefix(errs, "ping: no_such_target") {
+	if code != 2 || !strings.HasPrefix(errs, "roar: no_such_target") {
 		t.Fatalf("unknown target: %d %q", code, errs)
 	}
 	code, _, errs = h.run(pane{}, "", "send", a.label, "hi")

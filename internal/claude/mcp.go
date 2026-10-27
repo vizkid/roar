@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/vizkid/ping/internal/store"
+	"github.com/vizkid/roar/internal/store"
 )
 
 // Config is everything the adapter needs. Tests replace the functions.
@@ -32,8 +32,8 @@ type Config struct {
 	Log    io.Writer
 }
 
-const instructions = `Messages from other agents arrive as <channel source="ping"> blocks with a [ping <id> from <sender> <kind>] header.
-A "request" asks you to act; an "inform" is for your information. To answer, run: ping send --reply <id> "your answer".`
+const instructions = `Messages from other agents arrive as <channel source="roar"> blocks with a [roar <id> from <sender> <kind>] header.
+A "request" asks you to act; an "inform" is for your information. To answer, run: roar send --reply <id> "your answer".`
 
 // Serve speaks MCP over in/out until in closes or ctx ends. It declares the
 // channel capability only when Claude was started with the channel flag and
@@ -80,7 +80,7 @@ func Serve(ctx context.Context, cfg Config, in io.Reader, out io.Writer) error {
 				}
 			}
 			if !ok {
-				fmt.Fprintf(cfg.Log, "ping mcp: no channel: %s\n", why)
+				fmt.Fprintf(cfg.Log, "roar mcp: no channel: %s\n", why)
 			}
 			w.reply(req.ID, initializeResult(ok))
 		case "notifications/initialized":
@@ -93,7 +93,7 @@ func Serve(ctx context.Context, cfg Config, in io.Reader, out io.Writer) error {
 			w.reply(req.ID, map[string]any{"resources": []any{}})
 		case "prompts/list":
 			w.reply(req.ID, map[string]any{"prompts": []any{}})
-		case "ping":
+		case "ping": // MCP's keep-alive method
 			w.reply(req.ID, map[string]any{})
 		default:
 			if len(req.ID) > 0 && string(req.ID) != "null" {

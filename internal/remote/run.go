@@ -1,6 +1,6 @@
-// Package remote runs Ping on another Rex host through Rex itself: a
+// Package remote runs Roar on another Rex host through Rex itself: a
 // command in a detached block, input streamed through its terminal, and the
-// exit code read back. Ping opens no network listener of its own.
+// exit code read back. Roar opens no network listener of its own.
 package remote
 
 import (
@@ -11,42 +11,41 @@ import (
 	"strings"
 	"time"
 
-	"github.com/vizkid/ping/internal/rex"
+	"github.com/vizkid/roar/internal/rex"
 )
 
 var (
-	ErrNoPing  = errors.New("no_ping_on_host")
+	ErrNoPing  = errors.New("no_roar_on_host")
 	ErrRefused = errors.New("refused")
 	ErrUnknown = errors.New("remote_outcome_unknown")
 )
 
-// DefaultBin is where `ping install` puts Ping on a host. Remote commands
-// use an absolute path: in a detached block's PATH, a bare "ping" finds
-// the system's ICMP ping.
-const DefaultBin = "$HOME/.local/bin/ping"
+// DefaultBin is where `roar install` puts Roar on a host. Remote commands
+// use an absolute path: a detached block's PATH lacks ~/.local/bin.
+const DefaultBin = "$HOME/.local/bin/roar"
 
 const (
-	readyMarker = "PING-READY"
+	readyMarker = "ROAR-READY"
 	endMarker   = "#END#"
 	chunk       = 48 << 10 // under Rex's 64 KiB request limit
 )
 
-// RelaySession labels the session that holds Ping's detached blocks on each
-// host. It is not "ping": a project named ping would have a session by that
+// RelaySession labels the session that holds Roar's detached blocks on each
+// host. It is not "roar": a project named roar would have a session by that
 // label already.
-const RelaySession = "ping-relay"
+const RelaySession = "roar-relay"
 
-// Host is one Rex server that runs Ping.
+// Host is one Rex server that runs Roar.
 type Host struct {
 	Rex     rex.Client // Server is the host label or endpoint
-	Bin     string     // remote ping path; DefaultBin when empty
+	Bin     string     // remote roar path; DefaultBin when empty
 	Env     []string   // extra environment for the remote command
 	Session string     // label of the session that holds detached blocks; RelaySession when empty
 	Timeout time.Duration
 }
 
-// pingCommand runs the remote ping with args.
-func (h Host) pingCommand(args ...string) []string {
+// roarCommand runs the remote roar with args.
+func (h Host) roarCommand(args ...string) []string {
 	bin := h.Bin
 	if bin == "" {
 		bin = DefaultBin
@@ -58,7 +57,7 @@ func (h Host) pingCommand(args ...string) []string {
 	}
 	cmd := []string{"/usr/bin/env"}
 	cmd = append(cmd, h.Env...)
-	return append(append(cmd, "/bin/sh", "-c", "exec "+bin+` "$@"`, "ping"), args...)
+	return append(append(cmd, "/bin/sh", "-c", "exec "+bin+` "$@"`, "roar"), args...)
 }
 
 // run starts command in a detached block. With raw input it waits for the
@@ -69,7 +68,7 @@ func (h Host) run(ctx context.Context, command []string, input []byte, wait bool
 	if err != nil {
 		return 0, "", err
 	}
-	req := map[string]any{"session_id": session, "flavor": "com.superlogical.terminal.shell", "label": "ping", "options": map[string]any{
+	req := map[string]any{"session_id": session, "flavor": "com.superlogical.terminal.shell", "label": "roar", "options": map[string]any{
 		// login false: under /usr/bin/login the exit code is always 0.
 		"shell": "none", "login": false, "exit": map[string]any{"on_completion": false},
 		"size": map[string]any{"columns": 4000, "rows": 50}, "command": command,
@@ -141,7 +140,7 @@ func (h Host) waitFor(ctx context.Context, session, block, marker string) error 
 	return fmt.Errorf("%w: the remote command never became ready", ErrUnknown)
 }
 
-// session finds or creates the session that holds Ping's detached blocks.
+// session finds or creates the session that holds Roar's detached blocks.
 func (h Host) session(ctx context.Context) (string, error) {
 	label := h.Session
 	if label == "" {

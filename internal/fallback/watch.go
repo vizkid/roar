@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/vizkid/ping/internal/store"
+	"github.com/vizkid/roar/internal/store"
 )
 
 // Sweep is how often Watch re-checks every held message, as a backstop for

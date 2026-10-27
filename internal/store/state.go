@@ -2,7 +2,7 @@ package store
 
 import "time"
 
-// State is where a message stands. Every change is fsynced before Ping acts on it.
+// State is where a message stands. Every change is fsynced before Roar acts on it.
 type State string
 
 const (
@@ -21,7 +21,7 @@ var moves = map[State][]State{
 	Written:    {Accepted, Read, Queued, Unknown, Expired},
 	Accepted:   {Read, Queued, Expired},
 	Submitting: {Submitted, Unknown},
-	// Only an operator's `ping resolve` leaves Unknown.
+	// Only an operator's `roar resolve` leaves Unknown.
 	Unknown: {Read, Queued},
 }
 

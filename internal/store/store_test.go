@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/vizkid/ping/internal/envelope"
+	"github.com/vizkid/roar/internal/envelope"
 )
 
 var t0 = time.Date(2026, 10, 27, 12, 0, 0, 0, time.UTC)

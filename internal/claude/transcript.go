@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/vizkid/ping/internal/envelope"
+	"github.com/vizkid/roar/internal/envelope"
 )
 
 // Event kinds read from Claude's transcript. These are undocumented provider

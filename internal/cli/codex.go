@@ -10,17 +10,17 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/vizkid/ping/internal/codex"
+	"github.com/vizkid/roar/internal/codex"
 )
 
-// cmdCodex runs Codex behind Ping's proxy and delivers this pane's messages
+// cmdCodex runs Codex behind Roar's proxy and delivers this pane's messages
 // as native turns. It exits with the TUI's exit code.
 func cmdCodex(ctx context.Context, env Env, args []string) error {
-	bin := env.Getenv("PING_CODEX_BIN")
+	bin := env.Getenv("ROAR_CODEX_BIN")
 	if bin == "" {
 		var err error
 		if bin, err = exec.LookPath("codex"); err != nil {
-			return errors.New("no_codex: codex is not on PATH; set PING_CODEX_BIN")
+			return errors.New("no_codex: codex is not on PATH; set ROAR_CODEX_BIN")
 		}
 	}
 	ctx = context.WithoutCancel(ctx) // the TUI may run for days
@@ -46,7 +46,7 @@ func cmdCodex(ctx context.Context, env Env, args []string) error {
 		}
 		lock, err := st.HoldAdapter(block)
 		if err != nil {
-			fmt.Fprintf(env.Stderr, "ping codex: another adapter serves this pane; messages will not be delivered here: %v\n", err)
+			fmt.Fprintf(env.Stderr, "roar codex: another adapter serves this pane; messages will not be delivered here: %v\n", err)
 		} else {
 			defer lock.Release()
 			actx, cancel := context.WithCancel(ctx)
@@ -59,7 +59,7 @@ func cmdCodex(ctx context.Context, env Env, args []string) error {
 
 	tui := exec.Command(bin, append([]string{"--remote", "unix://" + sess.ProxySock}, args...)...)
 	tui.Stdin, tui.Stdout, tui.Stderr = os.Stdin, os.Stdout, os.Stderr
-	// Like a shell: terminal signals are for the TUI, and Ping must outlive
+	// Like a shell: terminal signals are for the TUI, and Roar must outlive
 	// it to stop the App Server.
 	signal.Ignore(syscall.SIGINT, syscall.SIGQUIT)
 	err = tui.Run()

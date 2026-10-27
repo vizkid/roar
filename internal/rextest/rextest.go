@@ -1,5 +1,5 @@
 // Package rextest creates throwaway Rex sessions for tests. Every session is
-// labelled ping-test-* and killed when the test ends; tests never touch other
+// labelled roar-test-* and killed when the test ends; tests never touch other
 // sessions.
 package rextest
 
@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/vizkid/ping/internal/rex"
+	"github.com/vizkid/roar/internal/rex"
 )
 
 var seq atomic.Int64
@@ -33,7 +33,7 @@ func Require(t *testing.T) rex.Client {
 
 // Label returns a unique session label for this test run.
 func Label(name string) string {
-	return fmt.Sprintf("ping-test-%s-%d-%d", name, os.Getpid(), seq.Add(1))
+	return fmt.Sprintf("roar-test-%s-%d-%d", name, os.Getpid(), seq.Add(1))
 }
 
 // Session creates a session whose first pane runs cmd (a shell when empty)
