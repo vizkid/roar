@@ -389,29 +389,40 @@ A detached block belongs to a session but sits in no window, so the operator's a
 
 ```text
 rex -S <endpoint> api call session.new_block
-  session_id: <the recipient host's ping session>
+  session_id: <the recipient host's ping-relay session>
   flavor:     com.superlogical.terminal.shell
   options:    shell "none", login false, exit {on_completion: false},
-              command [ping, enqueue, --sha256, <digest of the envelope>]
+              size {columns: 4000, rows: 50},
+              command [/bin/sh, -c, exec "$HOME/.local/bin/ping" "$@", ping, enqueue, --sha256, <digest>]
 ```
 
-1. `ping enqueue` puts its terminal in raw mode and reads the base64 envelope from stdin, up to an end marker.
-2. The sender writes the base64 envelope with the block's `write` method, in chunks of at most 48 KiB, then the end marker.
-3. `ping enqueue` checks the digest, stores the message, and exits.
+1. `ping enqueue` puts its terminal in raw mode and prints `PING-READY`.
+2. The sender waits for that marker on the block's screen, then writes the base64 envelope with the block's `write` method, in chunks of at most 48 KiB, then the end marker `#END#`.
+3. `ping enqueue` checks the digest (exit 6 on a mismatch), refuses an envelope for another host (`wrong_host`), stores the message, runs one delivery pass, and prints `PING-RESULT <id> <state> <reason>`.
 4. The sender polls the block's `process` method until `last_exit` is set. The session ID is required: a detached block is not found without it.
-5. Exit 0 means the recipient's host stored the message. Exit 2 is a refusal, with the reason on the block's screen.
-6. The sender closes the block with `block.close`.
+5. The sender reads the screen with `rex capture --trim --unwrap` and closes the block with `block.close`.
+
+| Exit | Meaning |
+| --- | --- |
+| 0 | Stored, or a duplicate of a stored message |
+| 2 | Refused; the reason is the last `ping:` line on the screen |
+| 6 | The envelope arrived damaged; the sender retries |
+| 126, 127 | Ping is not installed there: `no_ping_on_host` |
 
 Rules:
 
 - `login false` is required. Otherwise Rex runs the command under `/usr/bin/login`, which reports exit 0 whatever the command returned.
 - Rex refuses any single API call over 64 KiB. So the envelope cannot travel as one argument; it streams through the terminal in chunks.
-- Raw mode is required. Canonical terminal input limits line length.
-- Each host keeps one Rex session for this, labelled `ping`. `ping` creates it on first use.
+- Raw mode is required. Canonical terminal input limits line length. The ready marker exists because input written before raw mode would pass through canonical mode.
+- The remote command uses an absolute path. In a detached block's PATH, a bare `ping` finds the system's ICMP ping. The default is `$HOME/.local/bin/ping`; the sender's `PING_REMOTE_BIN` overrides it.
+- The block is 4000 columns wide, and the screen is read unwrapped, so result lines never break.
+- Each host keeps one Rex session for these blocks, labelled `ping-relay`. It is not `ping`, because a project named ping already has a session by that label. Ping creates it on first use.
 - Rex authenticates the caller as a Tailscale principal, so Ping adds no network listener and no host key.
-- A timeout is an unknown outcome. `ping send` retries with the same idempotency key, and the receiver dedupes.
-- If `ping` is not installed on the recipient's host, the block exits 127 and the send fails with `no_ping_on_host`.
-- `ping status` for a remote message runs `ping status --json <id>` there the same way and reads the block's screen.
+- A lost answer is an unknown outcome. `ping send` retries twice with the same envelope, and the receiver dedupes by ID.
+- `ping status` for a message held on another host runs `ping status --porcelain <id>` there the same way. Each line reads `PING-STATUS <id> <state> <detail> <proof> <boundary>`, with `-` for an empty field.
+- A reply goes back through the endpoint stored in the original envelope's `from` address.
+
+`ping install <host-label>` copies the running binary to `$HOME/.local/bin/ping` on a host with the same operating system and architecture. It streams base64 to `base64 -d` through the terminal in canonical mode, with echo off, in 76-character lines.
 
 Fallback typing always runs on the recipient's host, against its local Rex server.
 
@@ -465,7 +476,7 @@ These drive the tests.
 
 | Question | Recommendation |
 | --- | --- |
-| Source licence | Viz's call |
+| The command name `ping` shadows the system's ICMP `ping` wherever `~/.local/bin` comes first in PATH | Viz's call: keep the name and accept the shadowing, or install the binary under another name. Verified live: after `ping install`, an interactive shell on the remote host resolved `ping` to Ping. |
 | Where Codex sends an approval request for an injected turn | Test before calling the Codex adapter done |
 | Whether a Codex picker connection sends thread calls that look like a view change | Test; until then only the first bound connection may rebind |
 | What Claude does with an enqueued message it never absorbs (Esc, turn error) | Leave it `accepted` and show its age |
@@ -501,6 +512,9 @@ Live probes on 2026-10-27 used Claude Code 2.1.311, Codex CLI 0.164.0, and two R
 | `ping claude` delivers natively: idle as `turn`, during a tool call as `mid_turn`, a request held while working, receipt after `/clear` | Live test against Claude Code 2.1.311 |
 | `ping codex` delivers natively: idle as `turn/start`, while working as `turn/steer`, after `/new` into the thread the TUI shows | Live test against Codex 0.164.0 |
 | Killing the pane left the App Server running until `ping codex` handled SIGHUP | Live: an orphaned `codex app-server` after `rex kill`; none after the fix |
+| Cross-host send, remote status, a reply back, and fallback into real Claude on the other host | Live: send 1.9 s (held as `wrong_program` in a shell pane), status 0.6 s, the reply landed in the sender's inbox, fallback `submitted` in 1.7 s and Claude answered |
+| `ping install` copies a 9.9 MB binary across hosts | Live: 49 s |
+| A detached block's PATH finds the ICMP `ping` first | Live: `/sbin/ping` |
 | Codex reports `idle`, then works briefly during startup | Live: the proof held a message as `busy` 1 s after the first `idle` |
 | Rex runs pane commands in its server's login environment, not the caller's | Live: agents started without the caller's `CLAUDE_CONFIG_DIR` or `CODEX_HOME` |
 | macOS may report either path of a hard-linked binary | A test agent hard-linked as `claude` and `codex` intermittently failed the owner-name check |

@@ -49,6 +49,8 @@ var commands = map[string]command{
 	"claude":   cmdClaude,
 	"mcp":      cmdMCP,
 	"codex":    cmdCodex,
+	"enqueue":  cmdEnqueue,
+	"install":  cmdInstall,
 }
 
 const usage = `usage: ping <command> [args]
@@ -63,6 +65,8 @@ const usage = `usage: ping <command> [args]
   deliver [target...] [--watch]   type held messages into panes that are ready
   claude [args...]           run Claude Code with the Ping channel loaded
   codex [args...]            run Codex behind the Ping proxy
+  install <host-label>       copy this ping to ~/.local/bin on another Rex host
+  enqueue --sha256 <digest>  receive a message from another host (Ping runs this itself)
   mcp                        the Claude adapter (Claude starts it; do not run it yourself)
 `
 

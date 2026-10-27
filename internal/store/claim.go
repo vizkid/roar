@@ -138,3 +138,15 @@ func (s *Store) Sent(fromBlock string) ([]envelope.Envelope, error) {
 	}
 	return out, nil
 }
+
+// SentRecord loads the routing record of one message this host sent.
+func (s *Store) SentRecord(id string) (envelope.Envelope, error) {
+	var e envelope.Envelope
+	if !envelope.ValidID(id) {
+		return e, ErrNotFound
+	}
+	if err := readJSON(filepath.Join(s.root, "sent", id+".json"), &e); err != nil {
+		return e, ErrNotFound
+	}
+	return e, nil
+}

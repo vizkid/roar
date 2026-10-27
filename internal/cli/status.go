@@ -22,6 +22,7 @@ type statusRow struct {
 func cmdStatus(ctx context.Context, env Env, args []string) error {
 	fs := flag.NewFlagSet("status", flag.ContinueOnError)
 	asJSON := fs.Bool("json", false, "print as JSON")
+	porcelain := fs.Bool("porcelain", false, "print one stable line per message (for scripts and other hosts)")
 	ids, err := parse(fs, args)
 	if err != nil {
 		return err
@@ -47,8 +48,21 @@ func cmdStatus(ctx context.Context, env Env, args []string) error {
 	for _, id := range ids {
 		rows = append(rows, statusOf(st, id))
 	}
+	fillRemote(ctx, env, st, rows)
 	if *asJSON {
 		return writeJSON(env, rows)
+	}
+	if *porcelain {
+		dash := func(s string) string {
+			if s == "" {
+				return "-"
+			}
+			return strings.ReplaceAll(s, " ", "_")
+		}
+		for _, r := range rows {
+			fmt.Fprintf(env.Stdout, "PING-STATUS %s %s %s %s %s\n", r.ID, r.State, dash(r.Detail), dash(r.Proof), dash(r.Boundary))
+		}
+		return nil
 	}
 	for _, r := range rows {
 		line := fmt.Sprintf("%s  %-10s %s", r.ID, r.State, r.To)
@@ -60,6 +74,44 @@ func cmdStatus(ctx context.Context, env Env, args []string) error {
 		fmt.Fprintln(env.Stdout, line)
 	}
 	return nil
+}
+
+// fillRemote asks other hosts about messages that went there. A host that
+// cannot be reached leaves its rows as remote_unreachable.
+func fillRemote(ctx context.Context, env Env, st *store.Store, rows []statusRow) {
+	byServer := map[string][]int{}
+	for i, r := range rows {
+		if r.State != "not_found" {
+			continue
+		}
+		e, err := st.SentRecord(r.ID)
+		if err != nil || e.To.Endpoint == "" {
+			continue
+		}
+		rows[i].To = envelope.Sanitize(e.To.Label)
+		byServer[e.To.Endpoint] = append(byServer[e.To.Endpoint], i)
+	}
+	for server, idx := range byServer {
+		ids := make([]string, len(idx))
+		for k, i := range idx {
+			ids[k] = rows[i].ID
+		}
+		got, err := remoteHost(env, server).Status(ctx, ids...)
+		found := map[string]bool{}
+		for _, g := range got {
+			for _, i := range idx {
+				if rows[i].ID == g.ID {
+					rows[i].State, rows[i].Detail, rows[i].Proof, rows[i].Boundary = g.State, g.Detail, g.Proof, g.Boundary
+					found[g.ID] = true
+				}
+			}
+		}
+		for _, i := range idx {
+			if !found[rows[i].ID] && err != nil {
+				rows[i].State, rows[i].Detail = "remote_unreachable", err.Error()
+			}
+		}
+	}
 }
 
 func statusOf(st *store.Store, id string) statusRow {
