@@ -1,6 +1,6 @@
 # Ping specification
 
-Owner: Viz. Updated: 2026-10-27. Status: draft, not ratified.
+Owner: Viz. Updated: 2026-10-27. Status: implemented on `main`; the spec itself is not yet ratified.
 
 ## Problem and solution
 
@@ -95,9 +95,24 @@ Every pane runs as the same user. This identity prevents mistakes. It is not aut
 | `kind` | `inform` or `request`. Unknown values become `inform`. |
 | `reply_to` | Optional. `ping send --reply <id>` reads the original envelope from the caller's own inbox and addresses its sender. |
 | `forwarded` | True when the envelope arrived from another host. A forwarded envelope is never forwarded again. |
+| `files` | Optional. Name, size, and SHA-256 of each attachment. See [Attachments](#attachments). |
 
 The agent sees one header line, then the body: `[ping <id> from <session-label>/<block-short> <kind> ↩<reply_to>]`.
 Ping strips control characters and newlines from every header field.
+
+## Attachments
+
+`ping send --file PATH` attaches a file. The flag repeats. The files travel with the message and are on the recipient's host before the agent reads the message.
+
+| Rule | Detail |
+| --- | --- |
+| Size | 16 MiB in total per message. A larger send is refused with `limit_exceeded` before anything is stored. |
+| Names | The file's base name. A name that repeats gets a numeric suffix. Names with `/`, a leading `.`, or more than 128 bytes are refused. |
+| Envelope | `files` lists each attachment's name, size, and SHA-256. The contents are not in the envelope. |
+| Storage | `box/<block>/<id>/files/<name>`, written into the staging directory and renamed with the message, so a message never appears without its files. |
+| What the agent sees | One line per file after the header: `attached: <absolute path on the recipient's host> (<size> bytes)`. |
+| Across hosts | The stream carries the envelope and the file contents together. The receiver checks every file's size and SHA-256 before storing. |
+| Lifetime | Files are removed with their message when it is pruned, 7 days after it is finished. |
 
 ## The store
 
@@ -457,7 +472,7 @@ The message becomes `unknown`. No fallback runs, even though the pane later look
 
 ## Acceptance criteria
 
-These drive the tests.
+These drive the tests. Each one is covered; the test names are listed after the criteria.
 
 1. A native send to an idle Claude reaches `read` with boundary `turn`. One sent while Claude is mid-tool reaches `read` with boundary `mid_turn`.
 2. A meta value that is not a string is refused before writing.
@@ -471,6 +486,19 @@ These drive the tests.
 10. Killing any command or adapter at each state change recovers to the documented state with no duplicate delivery.
 11. Two deliverers racing on one message deliver it once.
 12. A cross-host send dedupes on retry with the same key, and opens no window on either host.
+13. Attachments arrive with their message, on the same host or across hosts, and an oversized set is refused.
+
+| Criteria | Tests |
+| --- | --- |
+| 1, 4 | `TestLiveClaudeChannel`; `TestDeliverAcceptReceive`, `TestMidTurnReceipt` |
+| 2, 3 | `TestMetaValidation`, `TestGuardRefusesWithoutFlag` |
+| 5, 6, 7 | `TestLiveCodexChannel`; `TestBusyThreadIsSteeredAndStaleSteerRetries`, `TestNewThreadRebinds`, `TestDisconnectAfterWriteIsUnknown`, `TestAdapterLeavesUnknownAfterDisconnect` |
+| 8 | `TestComposerStates`, `TestProcessGates`, `TestStatusGates`, `TestScreenGates`, `TestReadyExitCodes` |
+| 9 | `TestSubmitsIntoEmptyComposer`, `TestChangeBetweenPasteAndEnterLeavesUnknown`, `TestLiveClaudeFallback`, `TestLiveCodexFallback` |
+| 10 | `TestCrashedSubmitterSettlesToUnknown`, `TestRecoveryAfterWriterChange`, `TestAdapterSettlesAPreviousWritersMessageAsUnknown` |
+| 11 | `TestRacingProcessesClaimOnce`, `TestRacingDeliverersSubmitOnce` |
+| 12 | `TestEnqueueStoresAndDedupes`, `TestRunOpensNoWindow`, plus the live cross-host run in Evidence |
+| 13 | `TestSendWithAttachments`, `TestEnqueueCarriesAttachments`, `TestPutWithFilesRejectsMismatch` |
 
 ## Open questions
 
@@ -481,6 +509,7 @@ These drive the tests.
 | Whether a Codex picker connection sends thread calls that look like a view change | Test; until then only the first bound connection may rebind |
 | What Claude does with an enqueued message it never absorbs (Esc, turn error) | Leave it `accepted` and show its age |
 | Program status kinds `question` and `auth` were not seen live | The proof treats every `blocked` as wait, which is safe |
+| Attachments count toward no host-wide limit | Only the 16 MiB per-message cap applies. Add a host cap if large unread attachments pile up. |
 
 ## Evidence
 

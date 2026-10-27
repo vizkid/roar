@@ -40,6 +40,7 @@ type Envelope struct {
 	IdempotencyKey string    `json:"idempotency_key,omitempty"`
 	CreatedAt      time.Time `json:"created_at"`
 	Forwarded      bool      `json:"forwarded,omitempty"`
+	Files          []File    `json:"files,omitempty"`
 }
 
 // NormalizeKind maps unknown kinds to Inform.
@@ -70,7 +71,7 @@ func (e Envelope) Validate() error {
 	if e.Kind != Inform && e.Kind != Request {
 		return fmt.Errorf("invalid kind %q", e.Kind)
 	}
-	return nil
+	return e.validateFiles()
 }
 
 // Header is the single line an agent sees before the body.

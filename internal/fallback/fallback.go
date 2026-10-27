@@ -89,7 +89,7 @@ func (d *Deliverer) typeMessage(ctx context.Context, c *store.Claim, pid int) (O
 		err := c.Move(store.Unknown, d.Now(), func(r *store.Record) { r.Reason = reason })
 		return outcome(c.Message()), err
 	}
-	if err := d.Rex.Paste(ctx, to.Session, to.Block, m.Envelope.Render()); err != nil {
+	if err := d.Rex.Paste(ctx, to.Session, to.Block, m.Render()); err != nil {
 		return unknown("paste_failed")
 	}
 	if r := ready.Status(ctx, d.Rex, to.Session, to.Block, pid); r.Verdict != ready.Empty {

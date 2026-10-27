@@ -87,7 +87,7 @@ func (a *Adapter) deliver(ctx context.Context, id string) bool {
 		return false
 	}
 	dctx, cancel := context.WithTimeout(ctx, DeliverTimeout)
-	r, err := a.Proxy.Deliver(dctx, m.Envelope.Render())
+	r, err := a.Proxy.Deliver(dctx, m.Render())
 	cancel()
 	switch {
 	case err == nil:

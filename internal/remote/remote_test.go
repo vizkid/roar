@@ -3,6 +3,7 @@ package remote
 import (
 	"context"
 	"errors"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -139,5 +140,23 @@ func TestStatusAcrossHosts(t *testing.T) {
 	rows, err := f.host.Status(t.Context(), e.ID)
 	if err != nil || len(rows) != 1 || rows[0].State != "queued" {
 		t.Fatalf("rows %+v err %v", rows, err)
+	}
+}
+
+func TestEnqueueCarriesAttachments(t *testing.T) {
+	f := setup(t)
+	e := f.env("with a file")
+	data := []byte(strings.Repeat("attachment ", 20000))
+	e.Files = []envelope.File{envelope.FileFor("blob.txt", data)}
+	if _, err := f.host.EnqueueWithFiles(t.Context(), e, map[string][]byte{"blob.txt": data}); err != nil {
+		t.Fatal(err)
+	}
+	m, err := f.st.Get(e.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, _ := os.ReadFile(filepath.Join(m.Dir, "files", "blob.txt"))
+	if string(got) != string(data) {
+		t.Fatalf("stored %d bytes, sent %d", len(got), len(data))
 	}
 }

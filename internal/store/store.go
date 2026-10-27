@@ -75,8 +75,19 @@ func (s *Store) Root() string { return s.root }
 // Put stores a new message as queued. A message with the same ID already
 // stored is a duplicate, which is success.
 func (s *Store) Put(e envelope.Envelope, now time.Time) (dup bool, err error) {
+	return s.PutWithFiles(e, now, nil)
+}
+
+// PutWithFiles stores a message and its attachments together: the files go
+// into the staging directory first, so a message never appears without them.
+func (s *Store) PutWithFiles(e envelope.Envelope, now time.Time, files map[string][]byte) (dup bool, err error) {
 	if err := e.Validate(); err != nil {
 		return false, err
+	}
+	for _, f := range e.Files {
+		if !f.Matches(files[f.Name]) {
+			return false, fmt.Errorf("attachment %q does not match its size and digest", f.Name)
+		}
 	}
 	if err := safeName(e.To.Block); err != nil {
 		return false, err
@@ -92,6 +103,9 @@ func (s *Store) Put(e envelope.Envelope, now time.Time) (dup bool, err error) {
 		return false, err
 	}
 	defer os.RemoveAll(tmp)
+	if err := writeFiles(tmp, e.Files, files); err != nil {
+		return false, err
+	}
 	if err := writeJSON(filepath.Join(tmp, "envelope.json"), e); err != nil {
 		return false, err
 	}
@@ -149,6 +163,41 @@ func load(dir string) (Message, error) {
 		return m, err
 	}
 	return m, nil
+}
+
+// Render is the text an agent receives, with attachment paths on this host.
+func (m Message) Render() string {
+	if len(m.Envelope.Files) == 0 {
+		return m.Envelope.Render()
+	}
+	return m.Envelope.RenderIn(m.Dir)
+}
+
+func writeFiles(dir string, list []envelope.File, files map[string][]byte) error {
+	if len(list) == 0 {
+		return nil
+	}
+	fdir := filepath.Join(dir, "files")
+	if err := os.Mkdir(fdir, 0o700); err != nil {
+		return err
+	}
+	for _, f := range list {
+		h, err := os.OpenFile(filepath.Join(fdir, f.Name), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+		if err != nil {
+			return err
+		}
+		_, err = h.Write(files[f.Name])
+		if err == nil {
+			err = h.Sync()
+		}
+		if cerr := h.Close(); err == nil {
+			err = cerr
+		}
+		if err != nil {
+			return err
+		}
+	}
+	return syncDir(fdir)
 }
 
 // Inbox lists messages addressed to one block, oldest first.

@@ -24,10 +24,21 @@ type Result struct {
 // Exit codes of `ping enqueue` beyond 0 and 2.
 const ExitDigest = 6
 
+// Payload is what crosses hosts: the envelope and its attachments' contents.
+type Payload struct {
+	Envelope envelope.Envelope `json:"envelope"`
+	Files    map[string][]byte `json:"files,omitempty"`
+}
+
 // Enqueue stores e on the host and runs one delivery pass there. A retry of
 // the same envelope reports "duplicate".
 func (h Host) Enqueue(ctx context.Context, e envelope.Envelope) (Result, error) {
-	payload, err := json.Marshal(e)
+	return h.EnqueueWithFiles(ctx, e, nil)
+}
+
+// EnqueueWithFiles is Enqueue with attachment contents.
+func (h Host) EnqueueWithFiles(ctx context.Context, e envelope.Envelope, files map[string][]byte) (Result, error) {
+	payload, err := json.Marshal(Payload{Envelope: e, Files: files})
 	if err != nil {
 		return Result{}, err
 	}

@@ -46,7 +46,7 @@ func remoteHost(env Env, server string) remote.Host {
 
 // sendRemote hands the envelope to the recipient's host. A lost answer is
 // retried with the same envelope; the receiver dedupes by ID.
-func sendRemote(ctx context.Context, env Env, e envelope.Envelope) (remote.Result, error) {
+func sendRemote(ctx context.Context, env Env, e envelope.Envelope, files map[string][]byte) (remote.Result, error) {
 	server := e.To.Endpoint
 	if server == "" {
 		return remote.Result{}, errors.New("no_route: the recipient has no Rex endpoint")
@@ -54,7 +54,7 @@ func sendRemote(ctx context.Context, env Env, e envelope.Envelope) (remote.Resul
 	h := remoteHost(env, server)
 	var lastErr error
 	for range 3 {
-		r, err := h.Enqueue(ctx, e)
+		r, err := h.EnqueueWithFiles(ctx, e, files)
 		if err == nil || !errors.Is(err, remote.ErrUnknown) {
 			return r, err
 		}

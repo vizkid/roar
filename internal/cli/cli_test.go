@@ -3,10 +3,13 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/vizkid/ping/internal/envelope"
 	"github.com/vizkid/ping/internal/rex"
 	"github.com/vizkid/ping/internal/rextest"
 	"github.com/vizkid/ping/internal/store"
@@ -157,5 +160,35 @@ func TestWithdrawAndResolve(t *testing.T) {
 	h.must(a, "resolve", id, "--requeue")
 	if m, _ := st.Get(id); m.Record.State != store.Queued {
 		t.Fatalf("after requeue: %s", m.Record.State)
+	}
+}
+
+func TestSendWithAttachments(t *testing.T) {
+	h := newHarness(t)
+	a, b := h.pane("a"), h.pane("b")
+	dir := t.TempDir()
+	one, two := filepath.Join(dir, "one.txt"), filepath.Join(t.TempDir(), "one.txt")
+	os.WriteFile(one, []byte("first"), 0o600)
+	os.WriteFile(two, []byte("second"), 0o600)
+	id := h.must(a, "send", "--file", one, "--file", two, b.label, "two files")
+	body := h.must(b, "read", id)
+	var paths []string
+	for _, l := range strings.Split(body, "\n") {
+		if p, ok := strings.CutPrefix(l, "attached: "); ok {
+			paths = append(paths, p[:strings.LastIndex(p, " (")])
+		}
+	}
+	if len(paths) != 2 || filepath.Base(paths[1]) != "one-2.txt" {
+		t.Fatalf("attached lines in %q", body)
+	}
+	for i, want := range []string{"first", "second"} {
+		if got, _ := os.ReadFile(paths[i]); string(got) != want {
+			t.Fatalf("file %d holds %q", i, got)
+		}
+	}
+	big := filepath.Join(dir, "big")
+	os.WriteFile(big, make([]byte, envelope.MaxFiles+1), 0o600)
+	if code, _, errs := h.run(a, "", "send", "--file", big, b.label, "too big"); code != 2 || !strings.Contains(errs, "limit_exceeded") {
+		t.Fatalf("oversized attachment: %d %q", code, errs)
 	}
 }

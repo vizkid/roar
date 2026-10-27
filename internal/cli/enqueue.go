@@ -42,7 +42,10 @@ func cmdEnqueue(ctx context.Context, env Env, args []string) error {
 	nl := func(format string, a ...any) { fmt.Fprintf(env.Stdout, format+"\r\n", a...) }
 	nl("PING-READY")
 
-	payload, err := readUntilEnd(env.Stdin, base64.StdEncoding.EncodedLen(envelope.MaxText*4)+64)
+	// The JSON payload base64-encodes file contents, and the stream
+	// base64-encodes the payload again.
+	limit := base64.StdEncoding.EncodedLen(base64.StdEncoding.EncodedLen(envelope.MaxFiles) + envelope.MaxText*6 + 64<<10)
+	payload, err := readUntilEnd(env.Stdin, limit)
 	if err != nil {
 		return err
 	}
@@ -51,10 +54,11 @@ func cmdEnqueue(ctx context.Context, env Env, args []string) error {
 		nl("ping: digest_mismatch")
 		return silentExit(remote.ExitDigest)
 	}
-	var e envelope.Envelope
-	if err := json.Unmarshal(payload, &e); err != nil {
+	var p remote.Payload
+	if err := json.Unmarshal(payload, &p); err != nil {
 		return fmt.Errorf("bad_envelope: %v", err)
 	}
+	e := p.Envelope
 	e.Forwarded = true
 	w, err := env.Rex.Whoami(ctx)
 	if err != nil {
@@ -68,7 +72,7 @@ func cmdEnqueue(ctx context.Context, env Env, args []string) error {
 		return err
 	}
 	st.Prune(env.Now())
-	dup, err := st.Put(e, env.Now())
+	dup, err := st.PutWithFiles(e, env.Now(), p.Files)
 	if err != nil {
 		return err
 	}

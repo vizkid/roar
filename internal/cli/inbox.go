@@ -77,7 +77,7 @@ func cmdRead(ctx context.Context, env Env, args []string) error {
 			return err
 		}
 	}
-	fmt.Fprintln(env.Stdout, m.Envelope.Render())
+	fmt.Fprintln(env.Stdout, m.Render())
 	return nil
 }
 

@@ -6,6 +6,8 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"os"
+	"strings"
 
 	"github.com/vizkid/ping/internal/envelope"
 	"github.com/vizkid/ping/internal/rex"
@@ -18,6 +20,8 @@ func cmdSend(ctx context.Context, env Env, args []string) error {
 	reply := fs.String("reply", "", "answer this message from your inbox")
 	key := fs.String("key", "", "idempotency key; a retried send with the same key is stored once")
 	asJSON := fs.Bool("json", false, "print the result as JSON")
+	var paths fileList
+	fs.Var(&paths, "file", "attach a file (repeatable)")
 	pos, err := parse(fs, args)
 	if err != nil {
 		return err
@@ -53,13 +57,17 @@ func cmdSend(ctx context.Context, env Env, args []string) error {
 	if *key != "" {
 		e.ID = envelope.KeyedID(from.HostID, from.Block, *key)
 	}
+	files, err := attach(&e, paths)
+	if err != nil {
+		return err
+	}
 	if err := e.Validate(); err != nil {
 		return err
 	}
 	st.Prune(now)
 
 	if to.HostID != from.HostID {
-		r, err := sendRemote(ctx, env, e)
+		r, err := sendRemote(ctx, env, e, files)
 		if err != nil {
 			return err
 		}
@@ -68,7 +76,7 @@ func cmdSend(ctx context.Context, env Env, args []string) error {
 		}
 		return printResult(env, e.ID, r.State, r.Reason, *asJSON)
 	}
-	if _, err := st.Put(e, now); err != nil {
+	if _, err := st.PutWithFiles(e, now, files); err != nil {
 		return err
 	}
 	if err := st.RecordSent(e); err != nil {
@@ -114,4 +122,39 @@ func printResult(env Env, id, state, reason string, asJSON bool) error {
 		return nil
 	}
 	return json.NewEncoder(env.Stdout).Encode(map[string]any{"id": id, "state": state, "hold_reason": reason})
+}
+
+type fileList []string
+
+func (f *fileList) String() string     { return strings.Join(*f, ",") }
+func (f *fileList) Set(v string) error { *f = append(*f, v); return nil }
+
+// attach reads the files and lists them on the envelope.
+func attach(e *envelope.Envelope, paths []string) (map[string][]byte, error) {
+	if len(paths) == 0 {
+		return nil, nil
+	}
+	var total int64
+	for _, p := range paths {
+		info, err := os.Stat(p)
+		if err != nil {
+			return nil, err
+		}
+		if !info.Mode().IsRegular() {
+			return nil, fmt.Errorf("not_a_file: %s", p)
+		}
+		if total += info.Size(); total > envelope.MaxFiles {
+			return nil, fmt.Errorf("%w: attachments exceed %d bytes", store.ErrLimit, envelope.MaxFiles)
+		}
+	}
+	files := map[string][]byte{}
+	for i, name := range envelope.UniqueNames(paths) {
+		data, err := os.ReadFile(paths[i])
+		if err != nil {
+			return nil, err
+		}
+		files[name] = data
+		e.Files = append(e.Files, envelope.FileFor(name, data))
+	}
+	return files, nil
 }

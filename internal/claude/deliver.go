@@ -98,7 +98,7 @@ func (d *deliverer) write(m store.Message) {
 		return
 	}
 	e := c.Message().Envelope
-	line, err := notification(e.Render(), map[string]string{"id": e.ID, "sender": envelope.Sanitize(e.From.Label)})
+	line, err := notification(c.Message().Render(), map[string]string{"id": e.ID, "sender": envelope.Sanitize(e.From.Label)})
 	if err != nil {
 		fmt.Fprintf(d.cfg.Log, "ping mcp: %s: %v\n", e.ID, err)
 		return
