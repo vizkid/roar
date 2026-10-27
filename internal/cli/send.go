@@ -79,6 +79,11 @@ func cmdSend(ctx context.Context, env Env, args []string) error {
 	if err := st.RecordSent(e); err != nil {
 		return err
 	}
+	// One delivery pass. A native adapter, if one serves the pane, has
+	// already seen the new message; the fallback stands aside for it.
+	if _, err := deliverer(env, st).Block(ctx, to.Block); err != nil {
+		fmt.Fprintf(env.Stderr, "ping: delivery pass: %v\n", err)
+	}
 	m, err := st.Get(e.ID)
 	if err != nil {
 		return err

@@ -3,6 +3,7 @@ package rex
 import (
 	"context"
 	"path"
+	"time"
 )
 
 // Proc is a process Rex reports for a terminal.
@@ -53,11 +54,12 @@ func (p Proc) Agent() string {
 
 // StatusRecord is one program status report (OSC 7501).
 type StatusRecord struct {
-	ID           string `json:"id"`
-	State        string `json:"state"`
-	Kind         string `json:"kind"`
-	App          string `json:"app"`
-	EffectiveApp string `json:"effective_app"`
+	ID           string    `json:"id"`
+	State        string    `json:"state"`
+	Kind         string    `json:"kind"`
+	App          string    `json:"app"`
+	EffectiveApp string    `json:"effective_app"`
+	UpdatedAt    time.Time `json:"updated_at"`
 	Owner        *struct {
 		PID  int    `json:"pid"`
 		Name string `json:"name"`

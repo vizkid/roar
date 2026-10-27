@@ -167,7 +167,8 @@ Status alone cannot prove an empty composer. A typed draft leaves the status `id
 | A native adapter holds `adapters/<block>.lock` | Native. Only the adapter delivers. |
 | No native adapter, and the readiness proof says empty | Fallback, by whichever `ping send`, `ping enqueue`, or `ping deliver` holds the message lock |
 | No native adapter, and the proof says busy, draft, modal, or unknown | Hold. `ping deliver --watch` or the next send retries. |
-| The block is gone or now runs another program | Expire |
+| The pane runs something that is not an agent, such as a shell | Hold with `wrong_program`. Ping never types into it; an agent may start there later, and a person can still read the message with `ping inbox`. |
+| The block is gone or its program exited | Expire with `dead_pane` |
 | An earlier attempt for this message has an unknown outcome | Hold. Nothing tries again until `ping resolve`. |
 
 A pane can gain or lose its native adapter. Ping decides per attempt, never per message.
@@ -346,10 +347,22 @@ The status check comes first because a mid-turn composer looks empty. The dim-te
 
 1. Take the message lock. Run the proof. Record the foreground PID.
 2. Set the message to `submitting`.
-3. Paste the body with `block.event` `paste`. Rex brackets it, so newlines stay in the draft. `rex send` writes raw bytes and is not used for the body.
-4. Run steps 1 to 4 of the proof again.
+3. Paste the rendered message (header and body) with `block.event` `paste`, in pieces of at most 32 KiB. Rex brackets each piece, so newlines stay in the draft. `rex send` writes raw bytes and is not used for the body.
+4. Run steps 1 to 4 of the proof again, bound to the recorded PID. The composer now holds our text, so step 5 does not apply.
 5. Send `enter` with `rex send-key`.
-6. Wait up to 5 seconds for `program_status` to change to `working`. If it does, set `submitted`.
+6. Wait up to 5 seconds for the same agent to report `working`, or any state other than `idle` in a report made after Enter. A fast turn can go from `working` to `done` between two readings. If it does, set `submitted` with proof `rex_submit`.
+
+Each proof outcome has a reason that `ping ready` and `ping status` show:
+
+| Verdict | Reasons |
+| --- | --- |
+| empty | `empty` |
+| wait | `busy`, `modal`, `no_status`, `stale_status`, `foreign_status`, `cursor_hidden`, `no_marker`, `no_cursor`, `draft`, `probe_failed`, `stale_probe` |
+| refuse | `dead_pane`, `wrong_program`, `owner_changed` |
+
+The unknown reasons are `paste_failed`, `changed_before_enter`, `enter_failed`, `no_turn_started`, and `interrupted_while_typing`.
+
+`ping deliver --watch` follows `rex events --all` and retries a pane's oldest held message on `program_status_changed`, `process_changed`, or `child_exited`. It also sweeps every held message every 30 seconds, for events it missed. It delivers one message per pane per pass, because a delivered message starts a turn and the next would only be held as busy.
 
 If anything fails or changes after step 3, stop without Enter and set `unknown`. The pasted text may now sit in the composer as a draft. Ping does not try to clear it, because it cannot prove that the draft is its own.
 
@@ -472,6 +485,10 @@ Live probes on 2026-10-27 used Claude Code 2.1.311, Codex CLI 0.164.0, and two R
 | Rex refuses an API call over 64 KiB | Live: `control message too large ... limit is 65536` |
 | A raw-mode block receives a streamed payload intact | Live: 1 MiB locally in 0.55 s; 1 MiB remote in 4.1 s and 4 MiB in 16.8 s, digest verified. Each 48 KiB chunk was one CLI call. |
 | Rex has no durable application inbox | `help.all` and `rex actions` list none |
+| Fallback delivers into real Claude and Codex, and a later draft holds the next message | Live test: both agents answered the typed message |
+| Codex reports `idle`, then works briefly during startup | Live: the proof held a message as `busy` 1 s after the first `idle` |
+| Rex runs pane commands in its server's login environment, not the caller's | Live: agents started without the caller's `CLAUDE_CONFIG_DIR` or `CODEX_HOME` |
+| macOS may report either path of a hard-linked binary | A test agent hard-linked as `claude` and `codex` intermittently failed the owner-name check |
 
 ## Related documents
 

@@ -7,7 +7,10 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/vizkid/ping/internal/rex"
@@ -41,6 +44,8 @@ var commands = map[string]command{
 	"status":   cmdStatus,
 	"withdraw": cmdWithdraw,
 	"resolve":  cmdResolve,
+	"ready":    cmdReady,
+	"deliver":  cmdDeliver,
 }
 
 const usage = `usage: ping <command> [args]
@@ -51,6 +56,8 @@ const usage = `usage: ping <command> [args]
   status [id...]             show the state of messages you sent
   withdraw <id>              expire your own queued message
   resolve <id> --read|--requeue   settle a message in state unknown
+  ready <target>             is the pane's agent at rest with an empty composer? (exit 0 yes, 1 wait, 2 never)
+  deliver [target...] [--watch]   type held messages into panes that are ready
 `
 
 // Main runs one command and returns its exit code.
@@ -67,23 +74,23 @@ func Main(args []string, env Env) int {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 	err := cmd(ctx, env, args[1:])
-	var wait waitError
+	var silent silentExit
 	switch {
 	case err == nil:
 		return exitOK
-	case errors.As(err, &wait):
-		fmt.Fprintln(env.Stdout, wait.msg)
-		return exitWait
+	case errors.As(err, &silent):
+		return int(silent)
 	default:
 		fmt.Fprintf(env.Stderr, "ping: %v\n", err)
 		return exitRefused
 	}
 }
 
-// waitError is a "not yet" outcome, not a failure.
-type waitError struct{ msg string }
-
-func (w waitError) Error() string { return w.msg }
+// watchContext drops the command deadline and ends on SIGINT or SIGTERM.
+func watchContext(ctx context.Context) context.Context {
+	ctx, _ = signal.NotifyContext(context.WithoutCancel(ctx), os.Interrupt, syscall.SIGTERM)
+	return ctx
+}
 
 func openStore(env Env) (*store.Store, error) {
 	root := env.Getenv("PING_HOME")

@@ -21,6 +21,7 @@ type harness struct {
 	t    *testing.T
 	home string
 	rex  rex.Client
+	bin  string // test agent build, made on first use
 }
 
 func newHarness(t *testing.T) *harness {
