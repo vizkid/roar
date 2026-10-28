@@ -256,3 +256,37 @@ func TestRacingMessagesShareNoComposer(t *testing.T) {
 		t.Fatalf("one composer took %q", got)
 	}
 }
+
+// Only a report made after Enter, by the same agent, showing a turn, proves
+// that Enter started it.
+func TestTurnEvidence(t *testing.T) {
+	enter := time.Now()
+	rec := func(state, app string, pid int, at time.Time) *rex.StatusRecord {
+		r := &rex.StatusRecord{State: state, EffectiveApp: app, UpdatedAt: at}
+		r.Owner = &struct {
+			PID  int    `json:"pid"`
+			Name string `json:"name"`
+		}{PID: pid}
+		return r
+	}
+	after, before := enter.Add(time.Millisecond), enter.Add(-time.Millisecond)
+	for _, c := range []struct {
+		name string
+		st   *rex.StatusRecord
+		want bool
+	}{
+		{"working after enter", rec("working", "claude-code", 7, after), true},
+		{"fast turn already done", rec("done", "claude-code", 7, after), true},
+		{"blocked on a prompt", rec("blocked", "claude-code", 7, after), true},
+		{"working from before enter", rec("working", "claude-code", 7, before), false},
+		{"still idle", rec("idle", "claude-code", 7, after), false},
+		{"unknown state", rec("dancing", "claude-code", 7, after), false},
+		{"another app's record", rec("working", "codex", 7, after), false},
+		{"another process", rec("working", "claude-code", 8, after), false},
+		{"no record", nil, false},
+	} {
+		if got := turnEvidence(c.st, 7, "claude", enter); got != c.want {
+			t.Errorf("%s: %v, want %v", c.name, got, c.want)
+		}
+	}
+}

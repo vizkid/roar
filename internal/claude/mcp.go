@@ -22,8 +22,8 @@ type Config struct {
 	ParentArgs func(pid int) ([]string, error)
 	// Transcript returns the transcript Claude writes now; it changes on /clear.
 	Transcript func() (string, error)
-	// AgentStatus returns Claude's program status from Rex (idle, working, ...).
-	AgentStatus func(ctx context.Context) (string, error)
+	// AgentStatus returns this Claude's own program status record from Rex.
+	AgentStatus func(ctx context.Context) (Status, error)
 	Now         func() time.Time
 	// Writer identifies this adapter process in each message it writes.
 	Writer string
@@ -31,6 +31,17 @@ type Config struct {
 	Grace  time.Duration
 	Log    io.Writer
 }
+
+// Status is one program status report: the state (idle, working, ...) and
+// when Claude made it.
+type Status struct {
+	State string
+	At    time.Time
+}
+
+// RequestGap bounds how long a request waits for a report newer than the
+// last request, in case Claude never reacts to that one.
+const RequestGap = 30 * time.Second
 
 // instructions stay short: the roar skill teaches the agent to answer.
 const instructions = `Messages from other agents arrive as <channel source="roar"> blocks. Use the roar skill to answer them.`

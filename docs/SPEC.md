@@ -187,15 +187,15 @@ Roar reads it with the block's `program_status` method and watches `program_stat
 
 A record counts only when its owner's PID and name match the block's foreground process. The system reuses PIDs, and a killed agent leaves a stale record behind.
 
-Rex program status is Roar's only source of agent turn state.
+Rex program status is Roar's turn-state source for Claude and for typed delivery. Native Codex delivery reads the thread's status from the Codex daemon instead, which is authoritative for that thread, and never vetoes on Rex status: an approval or a side thread need not block a steer.
 Roar reads Claude transcripts for one purpose, message receipt, and never for turn state.
 
 Roar uses the status in four places:
 
-1. The Claude adapter holds a `request` until the status is `idle` or `done`.
-2. Adapters and `roar deliver --watch` retry held messages on `program_status_changed`, with no polling loop.
+1. The Claude adapter polls it and holds a `request` until the status is `idle` or `done`. It accepts only its own Claude's record: owner PID equal to its parent Claude and app `claude-code`. It releases one request per report of rest: a second request waits for a report newer than the first request, or 30 seconds, because Claude may not yet have reported the turn the first one starts.
+2. `roar deliver --watch` retries held messages on `program_status_changed`. It also sweeps every 30 seconds, and keeps sweeping while the event stream is down, because clearing a draft need not change the status.
 3. It is the first gate of the fallback proof.
-4. It confirms a fallback submit: `working` after Enter.
+4. It confirms a fallback submit: a report made after Enter, by the same process and app, showing a turn.
 
 Status alone cannot prove an empty composer. A typed draft leaves the status `idle`, which was verified live. So the fallback still checks the composer row.
 
@@ -455,9 +455,9 @@ The status check comes first because a mid-turn composer looks empty. The dim-te
 1. Take the message lock, then the pane lock (`panes/<block>.lock`). If another attempt holds the pane, hold the message as `pane_busy`. Run the proof. Record the foreground PID.
 2. Set the message to `submitting`.
 3. Paste the rendered message (header and body) with `block.event` `paste`, in pieces of at most 32 KiB. Rex brackets each piece, so newlines stay in the draft. `rex send` writes raw bytes and is not used for the body.
-4. Run steps 1 to 4 of the proof again, bound to the recorded PID. The composer now holds our text, so step 5 does not apply.
+4. Run steps 1 to 4 of the proof again, bound to the recorded PID, within the same 2-second freshness bound. The composer now holds our text, so step 5 does not apply.
 5. Send `enter` with `rex send-key`.
-6. Wait up to 5 seconds for the same agent to report `working`, or any state other than `idle` in a report made after Enter. A fast turn can go from `working` to `done` between two readings. If it does, set `submitted` with proof `rex_submit`.
+6. Wait up to 5 seconds for a report made after Enter, by the same process with the agent's app, in state `working`, `done` or `blocked`. A fast turn can go from `working` to `done` between two readings, so `done` counts. A `working` report from before Enter does not: that turn may have begun on its own. If one arrives, set `submitted` with proof `rex_submit`. Even then the report cannot prove which input started the turn.
 
 Each proof outcome has a reason that `roar ready` and `roar status` show:
 
@@ -581,6 +581,7 @@ These drive the tests. Each one is covered; the test names are listed after the 
 22. `peer` names the other pane in the sender's window, for `roar send` and `roar ready`. Among several, the only agent pane wins; a pane alone in its window has no peer.
 23. A command with `CODEX_THREAD_ID` is placed by its thread: a live binding, else proof from the newest message written into a Codex pane, else an inherited pane that is its ancestor. Otherwise it is refused with `unbound_codex_thread`.
 24. Two messages delivered to one pane at once never share a composer: one attempt holds the pane, and the other is held as `pane_busy`.
+25. A request reaches Claude only on its own Claude's record of rest, one request per report. A fallback submit counts only on a report made after Enter by the same agent showing a turn.
 16. A real Claude and a real Codex that receive a request answer it with `roar send --reply`.
 
 | Criteria | Tests |
@@ -605,6 +606,7 @@ These drive the tests. Each one is covered; the test names are listed after the 
 | 22 | `TestPeer`, `TestSendToPeer`, plus the live run in Evidence |
 | 23 | `TestCodexThreadIdentity`, `TestDeliveredIDs`, `TestCodexBindingByThread`, plus the live run in Evidence |
 | 24 | `TestRacingMessagesShareNoComposer`, `TestHoldsWhilePaneLocked` |
+| 25 | `TestClaudeStatus`, `TestRequestsReleaseOneAtATime`, `TestRequestWaitsForRest`, `TestTurnEvidence` |
 | 17 | `TestDeliveryClearsEarlierReason` (the side-thread case no longer applies: delivery reads the bound thread's own status) |
 
 ## Open questions

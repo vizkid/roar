@@ -43,6 +43,9 @@ type Snapshot struct {
 
 var agentApps = map[string]string{"claude": "claude-code", "codex": "codex"}
 
+// App is the program status app an agent reports as.
+func App(agent string) string { return agentApps[agent] }
+
 // Decide applies the proof. wantPID, when not zero, is the agent process an
 // earlier proof bound to; a different process means the pane changed hands.
 // The first verdict wins, in the order of the spec.

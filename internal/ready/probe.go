@@ -32,6 +32,7 @@ func Probe(ctx context.Context, c rex.Client, session, block string, wantPID int
 // Status re-runs only the process and status gates. The fallback uses it
 // between paste and Enter, when the composer holds our own text.
 func Status(ctx context.Context, c rex.Client, session, block string, wantPID int) Result {
+	start := time.Now()
 	var s Snapshot
 	var err error
 	if s.Process, err = c.Process(ctx, session, block); err != nil {
@@ -39,6 +40,9 @@ func Status(ctx context.Context, c rex.Client, session, block string, wantPID in
 	}
 	if s.Status, err = c.ProgramStatus(ctx, session, block); err != nil {
 		return result(Wait, "probe_failed")
+	}
+	if time.Since(start) > Freshness {
+		return result(Wait, "stale_probe")
 	}
 	r := decideProcessAndStatus(s, wantPID)
 	if r.Verdict == Empty {

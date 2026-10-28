@@ -76,7 +76,13 @@ func (d *Deliverer) Watch(ctx context.Context) error {
 	for ctx.Err() == nil {
 		events, err := d.Rex.Events(ctx)
 		if err != nil {
-			time.Sleep(time.Second)
+			// Keep sweeping while the event stream is down.
+			select {
+			case <-ctx.Done():
+			case <-sweep.C:
+				d.All(ctx)
+			case <-time.After(time.Second):
+			}
 			continue
 		}
 	stream:

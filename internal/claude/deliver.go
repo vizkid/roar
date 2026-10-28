@@ -22,6 +22,7 @@ type deliverer struct {
 	offset  int64
 	partial []byte
 	removed map[string]time.Time // remove records still inside the grace period
+	request time.Time            // when the last request was written
 }
 
 func newDeliverer(cfg Config, w *writer) *deliverer {
@@ -70,12 +71,16 @@ func (d *deliverer) deliver(ctx context.Context) {
 		}
 		if m.Envelope.Kind == envelope.Request {
 			// A request that lands mid-turn reaches the model as untrusted
-			// information, so wait until Claude is at rest.
+			// information, so wait until Claude is at rest. Rest seen before
+			// the last request does not count: that request's turn may not
+			// have been reported yet.
 			st, err := d.cfg.AgentStatus(ctx)
-			if err != nil || (st != "idle" && st != "done") {
+			fresh := !st.At.Before(d.request) || d.cfg.Now().Sub(d.request) > RequestGap
+			if err != nil || (st.State != "idle" && st.State != "done") || !fresh {
 				d.hold(m, "busy")
 				continue
 			}
+			d.request = d.cfg.Now()
 		}
 		d.write(m)
 	}

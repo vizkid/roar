@@ -72,7 +72,7 @@ func (d *Deliverer) Attempt(ctx context.Context, id string) (Outcome, error) {
 		// user can still read the message with `roar inbox`.
 		return d.hold(c, r.Reason)
 	}
-	return d.typeMessage(ctx, c, r.PID)
+	return d.typeMessage(ctx, c, r.PID, r.Agent)
 }
 
 func (d *Deliverer) hold(c *store.Claim, reason string) (Outcome, error) {
@@ -89,7 +89,7 @@ func (d *Deliverer) hold(c *store.Claim, reason string) (Outcome, error) {
 // waits for the agent to start a turn. Once text is pasted, any surprise
 // ends in unknown: the composer may now hold our text, and nothing may
 // type again until an operator settles it.
-func (d *Deliverer) typeMessage(ctx context.Context, c *store.Claim, pid int) (Outcome, error) {
+func (d *Deliverer) typeMessage(ctx context.Context, c *store.Claim, pid int, agent string) (Outcome, error) {
 	m := c.Message()
 	to := m.Envelope.To
 	now := d.Now()
@@ -114,29 +114,39 @@ func (d *Deliverer) typeMessage(ctx context.Context, c *store.Claim, pid int) (O
 	if err := d.Rex.SendKey(ctx, to.Session, to.Block, "enter"); err != nil {
 		return unknown("enter_failed")
 	}
-	if !d.turnStarted(ctx, to.Session, to.Block, pid, enterAt) {
+	if !d.turnStarted(ctx, to.Session, to.Block, pid, agent, enterAt) {
 		return unknown("no_turn_started")
 	}
 	err = c.Move(store.Submitted, d.Now(), func(r *store.Record) { r.Proof = "rex_submit" })
 	return outcome(c.Message()), err
 }
 
-// turnStarted waits for a status report from the same agent, made after
-// Enter, that shows a turn: working, or already done or blocked.
-func (d *Deliverer) turnStarted(ctx context.Context, session, block string, pid int, after time.Time) bool {
+// turnStarted waits for a status report that proves Enter started a turn.
+func (d *Deliverer) turnStarted(ctx context.Context, session, block string, pid int, agent string, after time.Time) bool {
 	deadline := time.Now().Add(SubmitWait)
 	for time.Now().Before(deadline) {
-		st, err := d.Rex.ProgramStatus(ctx, session, block)
-		if err == nil && st != nil && st.Owner != nil && st.Owner.PID == pid {
-			if st.State == "working" || (st.UpdatedAt.After(after) && st.State != "idle") {
-				return true
-			}
+		if st, err := d.Rex.ProgramStatus(ctx, session, block); err == nil && turnEvidence(st, pid, agent, after) {
+			return true
 		}
 		select {
 		case <-ctx.Done():
 			return false
 		case <-time.After(100 * time.Millisecond):
 		}
+	}
+	return false
+}
+
+// turnEvidence accepts a report made after Enter by the same agent process
+// that shows a turn: working, or a fast turn already done or blocked. A
+// report from before Enter could be a turn that began on its own.
+func turnEvidence(st *rex.StatusRecord, pid int, agent string, after time.Time) bool {
+	if st == nil || st.Owner == nil || st.Owner.PID != pid || st.EffectiveApp != ready.App(agent) {
+		return false
+	}
+	switch st.State {
+	case "working", "done", "blocked":
+		return st.UpdatedAt.After(after)
 	}
 	return false
 }

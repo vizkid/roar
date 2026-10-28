@@ -26,6 +26,7 @@ type fakeClaude struct {
 	transcript string
 	mu         sync.Mutex
 	status     string
+	statusAt   time.Time
 	cancel     context.CancelFunc
 	done       chan error
 }
@@ -35,7 +36,7 @@ const block = "block:claude-pane"
 func startAdapter(t *testing.T, st *store.Store, argv []string, writer string) *fakeClaude {
 	t.Helper()
 	f := &fakeClaude{t: t, st: st, notes: make(chan map[string]any, 16), replies: make(chan map[string]any, 16),
-		transcript: filepath.Join(t.TempDir(), "t.jsonl"), status: "idle", done: make(chan error, 1)}
+		transcript: filepath.Join(t.TempDir(), "t.jsonl"), status: "idle", statusAt: time.Now(), done: make(chan error, 1)}
 	os.WriteFile(f.transcript, nil, 0o600)
 	inR, inW := io.Pipe()
 	outR, outW := io.Pipe()
@@ -46,10 +47,10 @@ func startAdapter(t *testing.T, st *store.Store, argv []string, writer string) *
 		Store: st, Session: "session:s", Block: block, ParentPID: 1,
 		ParentArgs: func(int) ([]string, error) { return argv, nil },
 		Transcript: func() (string, error) { return f.transcript, nil },
-		AgentStatus: func(context.Context) (string, error) {
+		AgentStatus: func(context.Context) (Status, error) {
 			f.mu.Lock()
 			defer f.mu.Unlock()
-			return f.status, nil
+			return Status{State: f.status, At: f.statusAt}, nil
 		},
 		Now: time.Now, Writer: writer, Poll: 50 * time.Millisecond, Grace: 300 * time.Millisecond,
 	}
@@ -82,9 +83,10 @@ func (f *fakeClaude) initialize() map[string]any {
 	return r
 }
 
+// setStatus is a new report from Claude, as Rex would record it.
 func (f *fakeClaude) setStatus(s string) {
 	f.mu.Lock()
-	f.status = s
+	f.status, f.statusAt = s, time.Now()
 	f.mu.Unlock()
 }
 
@@ -214,6 +216,27 @@ func TestRequestWaitsForRest(t *testing.T) {
 	f.setStatus("done")
 	if noteID(f.note(3*time.Second)) != id {
 		t.Fatal("request not written once at rest")
+	}
+}
+
+// Two requests seen in one idle moment: Claude has not yet reported the
+// turn the first starts, so the second waits for a newer report of rest.
+func TestRequestsReleaseOneAtATime(t *testing.T) {
+	st := newStore(t)
+	f := startAdapter(t, st, []string{"claude", ChannelArg}, "w1")
+	f.setStatus("working")
+	f.initialize()
+	first, second := put(t, st, envelope.Request), put(t, st, envelope.Request)
+	f.setStatus("idle")
+	if noteID(f.note(3*time.Second)) != first {
+		t.Fatal("first request not written at rest")
+	}
+	if n := f.note(500 * time.Millisecond); n != nil {
+		t.Fatalf("second request written in the same idle moment: %v", n)
+	}
+	f.setStatus("done") // the first request's turn ended
+	if noteID(f.note(3*time.Second)) != second {
+		t.Fatal("second request not written after a newer report of rest")
 	}
 }
 
