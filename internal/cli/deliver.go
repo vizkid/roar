@@ -25,13 +25,7 @@ func cmdReady(ctx context.Context, env Env, args []string) error {
 	if len(pos) != 1 {
 		return usageErr("roar ready <target>")
 	}
-	host, target, err := splitHost(ctx, env.Rex, pos[0])
-	if err != nil {
-		return err
-	}
-	c := env.Rex
-	c.Server = host
-	to, err := rex.Resolve(ctx, c, target)
+	to, c, err := resolveTarget(ctx, env, pos[0])
 	if err != nil {
 		return err
 	}

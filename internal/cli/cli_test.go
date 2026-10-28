@@ -148,6 +148,22 @@ func TestOwnHostPrefixIsLocal(t *testing.T) {
 	}
 }
 
+// "peer" names the other pane in the sender's tab, for send and ready.
+func TestSendToPeer(t *testing.T) {
+	h := newHarness(t)
+	a := h.pane("a")
+	b := rextest.Split(t, h.rex, a.session, a.block, "", "sleep", "600")
+	time.Sleep(500 * time.Millisecond)
+	id := h.send(a, "send", "peer", "hi")
+	st, _ := store.Open(h.home)
+	if m, err := st.Get(id); err != nil || m.Envelope.To.Block != b {
+		t.Fatalf("delivered to %+v (%v), want %s", m.Envelope.To, err, b)
+	}
+	if _, out, errs := h.run(a, "", "ready", "peer"); !strings.Contains(out, "wrong_program") {
+		t.Fatalf("ready printed %q %q", out, errs)
+	}
+}
+
 func TestRefusals(t *testing.T) {
 	h := newHarness(t)
 	a := h.pane("a")

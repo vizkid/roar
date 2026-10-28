@@ -75,6 +75,7 @@ A recipient is one Rex block: `(server, session_id, block_id)`.
 | `claude`, `codex` | The panes whose foreground program is that agent, by the same test the readiness proof uses |
 | `left`, `right`, `top`, `bottom` | The panes on that edge of their window's tiled layout |
 | `top-left`, `top-right`, `bottom-left`, `bottom-right` | The panes on both edges |
+| `peer`, alone | The other panes in the sender's own window. It takes no session or host, because it is relative to the sender. With two side-by-side panes it names the other one. |
 
   Positions come from the layout rectangles `rex window ls` reports, so they match what the operator sees. In two side-by-side panes, `left` and `right` each name one pane and `top` names both. A hint applies in every window of the session; a session with several tabs can make it ambiguous.
   Example: a session `roar` with Claude on the left and Codex on the right. `codex@roar` and `right@roar` both name the Codex pane.
@@ -560,6 +561,7 @@ These drive the tests. Each one is covered; the test names are listed after the 
 18. A bare window or pane label from any session resolves to its pane, and `session/window` and `window@session` resolve too. A label used in two sessions is refused as ambiguous.
 20. With no matching label, `codex@session` and `claude@session` name the pane running that agent, and `left@session`, `right@session`, `top@session` and the other position hints name panes by their place in the tab. A label wins over a hint. A hint that names several panes follows the usual rule: the only agent pane wins, else it is refused as ambiguous.
 21. A `host-label:` prefix that is this machine's own name, in any case, resolves locally.
+22. `peer` names the other pane in the sender's window, for `roar send` and `roar ready`. Among several, the only agent pane wins; a pane alone in its window has no peer.
 16. A real Claude and a real Codex that receive a request answer it with `roar send --reply`.
 
 | Criteria | Tests |
@@ -581,6 +583,7 @@ These drive the tests. Each one is covered; the test names are listed after the 
 | 18 | `TestResolveWindowAndPaneLabels`, plus the live run in Evidence |
 | 20 | `TestResolveAgentAndPositionHints`, `TestPositions` |
 | 21 | `TestOwnHostPrefixIsLocal`, plus the live run in Evidence |
+| 22 | `TestPeer`, `TestSendToPeer`, plus the live run in Evidence |
 | 17 | `TestDeliveryClearsEarlierReason` (the side-thread case no longer applies: delivery reads the bound thread's own status) |
 
 ## Open questions

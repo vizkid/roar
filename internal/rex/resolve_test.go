@@ -161,3 +161,30 @@ func TestResolveAgentAndPositionHints(t *testing.T) {
 		t.Errorf("no claude pane: %v", err)
 	}
 }
+
+func TestPeer(t *testing.T) {
+	c := rextest.Require(t)
+	fake := filepath.Join(t.TempDir(), "codex")
+	if err := os.WriteFile(fake, []byte("#!/usr/bin/python3\nimport time\ntime.sleep(300)\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	session, shell := rextest.Session(t, c, rextest.Label("peer"), "sleep", "300")
+	if _, err := rex.Peer(ctx(t), c, session, shell); !errors.Is(err, rex.ErrNoTarget) {
+		t.Fatalf("a pane alone in its tab has no peer: %v", err)
+	}
+	agent := rextest.Split(t, c, session, shell, "", fake)
+	time.Sleep(500 * time.Millisecond)
+	for from, want := range map[string]string{shell: agent, agent: shell} {
+		if a, err := rex.Peer(ctx(t), c, session, from); err != nil || a.Block != want || a.Session != session {
+			t.Errorf("peer of %s: %+v %v, want %s", from, a, err, want)
+		}
+	}
+	rextest.Split(t, c, session, shell, "", "sleep", "300")
+	time.Sleep(500 * time.Millisecond)
+	if a, err := rex.Peer(ctx(t), c, session, shell); err != nil || a.Block != agent {
+		t.Errorf("among two others, the only agent wins: %+v %v", a, err)
+	}
+	if _, err := rex.Peer(ctx(t), c, session, agent); !errors.Is(err, rex.ErrAmbiguous) {
+		t.Errorf("two shells beside the agent: %v", err)
+	}
+}

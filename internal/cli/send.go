@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/vizkid/roar/internal/envelope"
-	"github.com/vizkid/roar/internal/rex"
 	"github.com/vizkid/roar/internal/store"
 )
 
@@ -135,13 +134,7 @@ func recipient(ctx context.Context, env Env, st *store.Store, from envelope.Addr
 	if len(pos) == 0 {
 		return envelope.Address{}, nil, usageErr("roar send <target> [text]")
 	}
-	host, target, err := splitHost(ctx, env.Rex, pos[0])
-	if err != nil {
-		return envelope.Address{}, nil, err
-	}
-	c := env.Rex
-	c.Server = host
-	to, err := rex.Resolve(ctx, c, target)
+	to, _, err := resolveTarget(ctx, env, pos[0])
 	return to, pos[1:], err
 }
 

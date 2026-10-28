@@ -21,13 +21,9 @@ var (
 // the end of a block ID. Among several panes, the only agent pane wins.
 // Anything else is ambiguous and lists the candidates.
 func Resolve(ctx context.Context, c Client, target string) (envelope.Address, error) {
-	w, err := c.Whoami(ctx)
+	addr, err := server(ctx, c)
 	if err != nil {
-		return envelope.Address{}, err
-	}
-	addr := envelope.Address{HostID: w.HostID, Endpoint: w.Endpoint}
-	if u := w.Tailscale.HTTPS.URL; u != "" {
-		addr.Endpoint = u
+		return addr, err
 	}
 	sessions, err := c.Sessions(ctx)
 	if err != nil {
