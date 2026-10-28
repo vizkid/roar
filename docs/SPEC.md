@@ -452,7 +452,7 @@ The status check comes first because a mid-turn composer looks empty. The dim-te
 
 ### Typing sequence
 
-1. Take the message lock. Run the proof. Record the foreground PID.
+1. Take the message lock, then the pane lock (`panes/<block>.lock`). If another attempt holds the pane, hold the message as `pane_busy`. Run the proof. Record the foreground PID.
 2. Set the message to `submitting`.
 3. Paste the rendered message (header and body) with `block.event` `paste`, in pieces of at most 32 KiB. Rex brackets each piece, so newlines stay in the draft. `rex send` writes raw bytes and is not used for the body.
 4. Run steps 1 to 4 of the proof again, bound to the recorded PID. The composer now holds our text, so step 5 does not apply.
@@ -467,13 +467,17 @@ Each proof outcome has a reason that `roar ready` and `roar status` show:
 | wait | `busy`, `modal`, `no_status`, `stale_status`, `foreign_status`, `cursor_hidden`, `no_marker`, `no_cursor`, `draft`, `probe_failed`, `stale_probe` |
 | refuse | `dead_pane`, `wrong_program`, `owner_changed` |
 
+A message can also be held before the proof runs: `native_adapter` (a Claude channel owns the pane) and `pane_busy` (another attempt holds the pane lock).
+
 The unknown reasons are `paste_failed`, `changed_before_enter`, `enter_failed`, `no_turn_started`, and `interrupted_while_typing`.
 
 `roar deliver --watch` follows `rex events --all` and retries a pane's oldest held message on `program_status_changed`, `process_changed`, or `child_exited`. It also sweeps every held message every 30 seconds, for events it missed. It delivers one message per pane per pass, because a delivered message starts a turn and the next would only be held as busy.
 
 If anything fails or changes after step 3, stop without Enter and set `unknown`. The pasted text may now sit in the composer as a draft. Roar does not try to clear it, because it cannot prove that the draft is its own.
 
-Rex has no compare-and-write. A short gap always exists between the last probe and the write.
+The pane lock is held from step 1 until the attempt ends, and also covers native Codex delivery. Message locks alone cannot stop a race: two messages for one pane hold two different locks, and both could pass the proof and paste into one composer.
+
+Rex has no compare-and-write. A short gap always exists between the last probe and the write. The pane lock closes that gap only between Roar's own attempts, not against the operator typing.
 
 ## Across hosts
 
@@ -576,6 +580,7 @@ These drive the tests. Each one is covered; the test names are listed after the 
 21. A `host-label:` prefix that is this machine's own name, in any case, resolves locally.
 22. `peer` names the other pane in the sender's window, for `roar send` and `roar ready`. Among several, the only agent pane wins; a pane alone in its window has no peer.
 23. A command with `CODEX_THREAD_ID` is placed by its thread: a live binding, else proof from the newest message written into a Codex pane, else an inherited pane that is its ancestor. Otherwise it is refused with `unbound_codex_thread`.
+24. Two messages delivered to one pane at once never share a composer: one attempt holds the pane, and the other is held as `pane_busy`.
 16. A real Claude and a real Codex that receive a request answer it with `roar send --reply`.
 
 | Criteria | Tests |
@@ -599,6 +604,7 @@ These drive the tests. Each one is covered; the test names are listed after the 
 | 21 | `TestOwnHostPrefixIsLocal`, plus the live run in Evidence |
 | 22 | `TestPeer`, `TestSendToPeer`, plus the live run in Evidence |
 | 23 | `TestCodexThreadIdentity`, `TestDeliveredIDs`, `TestCodexBindingByThread`, plus the live run in Evidence |
+| 24 | `TestRacingMessagesShareNoComposer`, `TestHoldsWhilePaneLocked` |
 | 17 | `TestDeliveryClearsEarlierReason` (the side-thread case no longer applies: delivery reads the bound thread's own status) |
 
 ## Open questions

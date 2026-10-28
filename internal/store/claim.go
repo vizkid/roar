@@ -66,6 +66,27 @@ func (c *Claim) Move(to State, now time.Time, edit func(*Record)) error {
 // Release drops the claim.
 func (c *Claim) Release() error { return unlock(c.lock) }
 
+// PaneLock is exclusive use of one pane's composer, from the readiness
+// proof through submission. Message claims cannot give that: two messages
+// for one pane hold two different claims.
+type PaneLock struct{ f *os.File }
+
+// LockPane takes the pane's lock. It returns ErrBusy when another attempt
+// holds it.
+func (s *Store) LockPane(block string) (*PaneLock, error) {
+	if err := safeName(block); err != nil {
+		return nil, err
+	}
+	f, err := tryLock(filepath.Join(s.root, "panes", block+".lock"))
+	if err != nil {
+		return nil, err
+	}
+	return &PaneLock{f}, nil
+}
+
+// Release drops the pane lock.
+func (l *PaneLock) Release() error { return unlock(l.f) }
+
 // Withdraw expires the sender's own message while it is still queued.
 func (s *Store) Withdraw(id, fromBlock string, now time.Time) error {
 	c, err := s.Claim(id)

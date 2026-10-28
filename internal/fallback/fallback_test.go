@@ -215,3 +215,44 @@ func TestWatchDeliversWhenAgentComesToRest(t *testing.T) {
 	m, _ := f.st.Get(e.ID)
 	t.Fatalf("watch did not deliver: %+v", m.Record)
 }
+
+// Another attempt holds the pane: nothing is typed, and the message waits.
+func TestHoldsWhilePaneLocked(t *testing.T) {
+	f := setup(t)
+	a := agenttest.Start(t, f.rex, f.bin, "claude")
+	lock, err := f.st.LockPane(a.Block)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := f.queue(a.Session, a.Block, "wait")
+	want(t, f.attempt(e.ID), store.Queued, "pane_busy")
+	lock.Release()
+	want(t, f.attempt(e.ID), store.Submitted, "")
+	if got := a.Submitted(); len(got) != 1 {
+		t.Fatalf("submitted %d times", len(got))
+	}
+}
+
+// Two messages for one pane, delivered at once: each claim locks only its
+// own message, so without a pane lock both could pass the empty-composer
+// proof and paste into one composer.
+func TestRacingMessagesShareNoComposer(t *testing.T) {
+	f := setup(t)
+	a := agenttest.Start(t, f.rex, f.bin, "claude")
+	ids := []string{f.queue(a.Session, a.Block, "first").ID, f.queue(a.Session, a.Block, "second").ID}
+	var wg sync.WaitGroup
+	for _, id := range ids {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			d := &Deliverer{Store: f.st, Rex: f.rex, Now: time.Now}
+			d.Attempt(context.Background(), id)
+		}()
+	}
+	wg.Wait()
+	time.Sleep(500 * time.Millisecond)
+	got := a.Submitted()
+	if len(got) != 1 || strings.Contains(got[0], "first") == strings.Contains(got[0], "second") {
+		t.Fatalf("one composer took %q", got)
+	}
+}

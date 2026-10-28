@@ -58,7 +58,7 @@ func DefaultRoot() (string, error) {
 
 // Open creates the directory layout if needed.
 func Open(root string) (*Store, error) {
-	for _, d := range []string{"box", "ids", "sent", "adapters", "codex", "tmp"} {
+	for _, d := range []string{"box", "ids", "sent", "adapters", "codex", "panes", "tmp"} {
 		if err := os.MkdirAll(filepath.Join(root, d), 0o700); err != nil {
 			return nil, err
 		}

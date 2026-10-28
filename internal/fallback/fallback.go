@@ -47,6 +47,15 @@ func (d *Deliverer) Attempt(ctx context.Context, id string) (Outcome, error) {
 		return outcome(m), nil
 	}
 	to := m.Envelope.To
+	// One attempt per pane at a time, from the proof through submission.
+	pane, err := d.Store.LockPane(to.Block)
+	if errors.Is(err, store.ErrBusy) {
+		return d.hold(c, "pane_busy")
+	}
+	if err != nil {
+		return outcome(m), err
+	}
+	defer pane.Release()
 	if d.Store.AdapterLive(to.Block) {
 		return d.hold(c, "native_adapter")
 	}
