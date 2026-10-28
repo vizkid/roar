@@ -62,7 +62,7 @@ Where no label matches, a hint names the pane: the agent it runs (`codex@roar`, 
 | Any other Claude or Codex | Typed through Rex when the composer is empty (`submitted`); otherwise held |
 | Anything else | Held; never typed into |
 
-Held messages go out on the next send to that pane, on `roar deliver`, or automatically while `roar deliver --watch` runs on that host.
+When Roar holds a typed message, it starts a watcher on that host if none runs. The watcher delivers the message when the pane comes to rest, then exits once nothing is held. It runs as `roar deliver --watch --until-idle` in a `roar-watch` block of the `roar-relay` session.
 `roar ready <target>` reports whether a pane could take typed input now (exit 0 yes, 1 wait, 2 never).
 A message whose delivery outcome is unknown is never retried automatically. Check the conversation, then run `roar resolve <id> --read` or `--requeue`.
 

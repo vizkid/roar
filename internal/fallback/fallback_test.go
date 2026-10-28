@@ -202,7 +202,7 @@ func TestWatchDeliversWhenAgentComesToRest(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
-	go f.d.Watch(ctx)
+	go f.d.Watch(ctx, false)
 	time.Sleep(time.Second) // let the event stream start
 	a.Control("done")
 	deadline := time.Now().Add(10 * time.Second)

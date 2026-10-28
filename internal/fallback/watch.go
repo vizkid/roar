@@ -50,17 +50,22 @@ func (d *Deliverer) All(ctx context.Context) ([]Outcome, error) {
 }
 
 func (d *Deliverer) queuedBlocks() (map[string]bool, error) {
-	all, err := d.Store.All()
+	return d.Store.QueuedBlocks()
+}
+
+// NeedsWatcher reports whether a queued message waits for a pane that no
+// native adapter serves. Only the watcher would retry such a message.
+func (d *Deliverer) NeedsWatcher() (bool, error) {
+	blocks, err := d.queuedBlocks()
 	if err != nil {
-		return nil, err
+		return false, err
 	}
-	blocks := map[string]bool{}
-	for _, m := range all {
-		if m.Record.State == store.Queued {
-			blocks[m.Envelope.To.Block] = true
+	for b := range blocks {
+		if !d.Store.AdapterLive(b) {
+			return true, nil
 		}
 	}
-	return blocks, nil
+	return false, nil
 }
 
 // triggers are the terminal events after which a held message may be
@@ -68,12 +73,20 @@ func (d *Deliverer) queuedBlocks() (map[string]bool, error) {
 var triggers = map[string]bool{"program_status_changed": true, "process_changed": true, "child_exited": true}
 
 // Watch delivers held messages as their panes come to rest. It follows Rex
-// events and sweeps every Sweep. It returns when ctx ends.
-func (d *Deliverer) Watch(ctx context.Context) error {
+// events and sweeps every Sweep, holding watch.lock throughout. With
+// untilIdle it exits at once if another watcher runs, and returns once no
+// message needs a watcher; otherwise it waits for the lock and runs until
+// ctx ends.
+func (d *Deliverer) Watch(ctx context.Context, untilIdle bool) error {
+	w := &watch{d: d, untilIdle: untilIdle}
+	if !w.hold(ctx) {
+		return nil
+	}
+	defer w.release()
 	d.All(ctx)
 	sweep := time.NewTicker(Sweep)
 	defer sweep.Stop()
-	for ctx.Err() == nil {
+	for ctx.Err() == nil && !w.done() {
 		events, err := d.Rex.Events(ctx)
 		if err != nil {
 			// Keep sweeping while the event stream is down.
@@ -97,14 +110,76 @@ func (d *Deliverer) Watch(ctx context.Context) error {
 					break stream // the stream broke; reconnect
 				}
 				if !triggers[ev.Name] {
-					continue
+					continue // skips the idle check: most events are not ours
 				}
 				if blocks, err := d.queuedBlocks(); err == nil && blocks[ev.Block] {
 					d.Block(ctx, ev.Block)
 				}
 			}
+			if w.done() {
+				return nil
+			}
 		}
 		time.Sleep(time.Second)
 	}
 	return nil
+}
+
+// watch holds watch.lock for one Watch call.
+type watch struct {
+	d         *Deliverer
+	untilIdle bool
+	lock      *store.WatcherLock
+}
+
+// hold takes watch.lock. A watcher started by a command gives way to one
+// already running; one started by hand waits its turn.
+func (w *watch) hold(ctx context.Context) bool {
+	for {
+		l, err := w.d.Store.HoldWatcher()
+		if err == nil {
+			w.lock = l
+			return true
+		}
+		if w.untilIdle {
+			return false
+		}
+		select {
+		case <-ctx.Done():
+			return false
+		case <-time.After(time.Second):
+		}
+	}
+}
+
+func (w *watch) release() {
+	if w.lock != nil {
+		w.lock.Release()
+		w.lock = nil
+	}
+}
+
+// done reports whether an until-idle watcher should exit. It releases the
+// lock and then checks once more: a command writes its hold before it
+// tests the lock, so a message held during the release is seen here.
+func (w *watch) done() bool {
+	if !w.untilIdle || w.needed() {
+		return false
+	}
+	w.release()
+	if !w.needed() {
+		return true
+	}
+	l, err := w.d.Store.HoldWatcher()
+	if err != nil {
+		return true // a new watcher took over
+	}
+	w.lock = l
+	return false
+}
+
+// needed treats a store it cannot read as needing the watcher.
+func (w *watch) needed() bool {
+	n, err := w.d.NeedsWatcher()
+	return err != nil || n
 }

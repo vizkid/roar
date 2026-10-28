@@ -135,6 +135,31 @@ func (s *Store) AdapterLive(block string) bool {
 	return false
 }
 
+// WatcherLock marks the live watcher. One runs per store.
+type WatcherLock struct{ f *os.File }
+
+// HoldWatcher takes watch.lock. ErrBusy means another watcher runs.
+func (s *Store) HoldWatcher() (*WatcherLock, error) {
+	f, err := tryLock(filepath.Join(s.root, "watch.lock"))
+	if err != nil {
+		return nil, err
+	}
+	return &WatcherLock{f: f}, nil
+}
+
+// Release lets another watcher start.
+func (l *WatcherLock) Release() error { return unlock(l.f) }
+
+// WatcherFree reports whether no watcher holds watch.lock.
+func (s *Store) WatcherFree() bool {
+	l, err := s.HoldWatcher()
+	if err != nil {
+		return false
+	}
+	l.Release()
+	return true
+}
+
 // RecordSent keeps routing details for the sender's `roar status`.
 func (s *Store) RecordSent(e envelope.Envelope) error {
 	if !envelope.ValidID(e.ID) {

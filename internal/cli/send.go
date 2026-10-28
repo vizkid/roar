@@ -91,6 +91,9 @@ func cmdSend(ctx context.Context, env Env, args []string) error {
 	if err != nil {
 		return err
 	}
+	if err := startWatcher(ctx, env, st); err != nil {
+		fmt.Fprintf(env.Stderr, "roar: starting watcher: %v\n", err)
+	}
 	return printResult(env, e.ID, string(m.Record.State), m.Record.HoldReason, *asJSON)
 }
 

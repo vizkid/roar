@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
 	"time"
 
 	"github.com/vizkid/roar/internal/envelope"
@@ -219,39 +218,6 @@ func writeFiles(dir string, list []envelope.File, files map[string][]byte) error
 		}
 	}
 	return syncDir(fdir)
-}
-
-// Inbox lists messages addressed to one block, oldest first.
-func (s *Store) Inbox(block string) ([]Message, error) {
-	if err := safeName(block); err != nil {
-		return nil, err
-	}
-	return s.list(filepath.Join(s.root, "box", block, "*"))
-}
-
-// All lists every stored message, oldest first.
-func (s *Store) All() ([]Message, error) {
-	return s.list(filepath.Join(s.root, "box", "*", "*"))
-}
-
-func (s *Store) list(pattern string) ([]Message, error) {
-	dirs, err := filepath.Glob(pattern)
-	if err != nil {
-		return nil, err
-	}
-	var out []Message
-	for _, d := range dirs {
-		m, err := load(d)
-		if errors.Is(err, ErrNotFound) {
-			continue // pruned while listing
-		}
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, m)
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Envelope.ID < out[j].Envelope.ID })
-	return out, nil
 }
 
 // checkLimits is advisory across processes: two simultaneous sends can both

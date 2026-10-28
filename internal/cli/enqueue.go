@@ -83,6 +83,9 @@ func cmdEnqueue(ctx context.Context, env Env, args []string) error {
 	if _, err := deliverer(env, st).Block(ctx, e.To.Block); err != nil {
 		fmt.Fprintf(env.Stderr, "roar: delivery pass: %v\r\n", err)
 	}
+	if err := startWatcher(ctx, env, st); err != nil {
+		fmt.Fprintf(env.Stderr, "roar: starting watcher: %v\r\n", err)
+	}
 	m, err := st.Get(e.ID)
 	if err != nil {
 		return err

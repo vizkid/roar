@@ -87,10 +87,7 @@ func cmdHook(ctx context.Context, env Env, args []string) error {
 		return nil
 	}
 	home := codexHome(env)
-	rc := env.Rex
-	if dir := env.Getenv("REX_BIN_DIR"); dir != "" {
-		rc.Bin = filepath.Join(dir, "rex")
-	}
+	rc := localRex(env)
 	ctx, cancel := context.WithTimeout(ctx, 4*time.Second) // Codex allows the hook 5 s
 	defer cancel()
 	// A daemon-backed Codex runs hooks in the daemon, whose REX_BLOCK names

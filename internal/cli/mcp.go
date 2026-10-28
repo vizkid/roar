@@ -20,10 +20,7 @@ func cmdMCP(ctx context.Context, env Env, _ []string) error {
 	if err != nil {
 		return err
 	}
-	rc := env.Rex
-	if dir := env.Getenv("REX_BIN_DIR"); dir != "" {
-		rc.Bin = filepath.Join(dir, "rex") // an MCP child may lack a login PATH
-	}
+	rc := localRex(env)
 	session, block := env.Getenv("REX_SESSION"), env.Getenv("REX_BLOCK")
 	configDir := env.Getenv("CLAUDE_CONFIG_DIR")
 	if configDir == "" {

@@ -25,6 +25,8 @@ type harness struct {
 	home string
 	rex  rex.Client
 	bin  string // test agent build, made on first use
+	// self and relay let a command start a watcher; empty means it starts none.
+	self, relay string
 }
 
 func newHarness(t *testing.T) *harness {
@@ -48,6 +50,8 @@ func (h *harness) run(p pane, stdin string, args ...string) (code int, stdout, s
 		Getenv: func(k string) string { return vars[k] },
 		Now:    time.Now,
 		Rex:    h.rex,
+		Self:   h.self,
+		Relay:  h.relay,
 	})
 	return code, out.String(), errb.String()
 }

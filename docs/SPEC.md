@@ -30,10 +30,10 @@ Rex supplies identity. A pane is a Rex block on a Rex server. Roar adds no names
 
 ## Design principles
 
-- **Commands, not a service.** Every command works on its own. There is no Roar daemon.
+- **Commands, not a service.** Every command works on its own. There is no Roar daemon. The one background process, the watcher, runs only while a typed message is held, and any command restarts it.
 - **The store is the interface.** Commands share state through files in one directory per host. File locks serialize changes.
 - **No wrappers.** The operator starts `claude` and `codex` as usual. `roar setup` puts Roar in their default config, so every session gets it.
-- **Long-lived only where the provider demands it.** The Claude adapter lives as long as Claude does. Codex delivery runs inside the sending command. `roar deliver --watch` is optional.
+- **Long-lived only where the provider demands it.** The Claude adapter lives as long as Claude does. Codex delivery runs inside the sending command. The watcher lives only while a held message needs it.
 - **Plain output.** Text by default, `--json` for scripts. Exit codes carry the outcome.
 
 Implementation language: Go.
@@ -49,7 +49,7 @@ Implementation language: Go.
 | `roar withdraw <id>` | Expires the caller's own unread message. | 0, 2 |
 | `roar resolve <id> --read\|--requeue` | Settles an `unknown` message after the operator checked the conversation. | 0, 2 |
 | `roar ready <target>` | Prints the fallback readiness verdict for a pane. It takes the same targets as `roar send`, host prefix included. | 0 empty, 1 wait, 2 refuse |
-| `roar deliver [target...] [--watch]` | Runs fallback delivery for queued messages whose recipients have no native adapter. `--watch` follows `rex events` and retries on status changes. | 0, 2 |
+| `roar deliver [target...] [--watch [--until-idle]]` | Runs fallback delivery for queued messages whose recipients have no native adapter. `--watch` follows `rex events` and retries on status changes. `--until-idle` exits once nothing is held; Roar starts it itself. | 0, 2 |
 | `roar enqueue --sha256 <digest>` | Plumbing for cross-host sends: reads a forwarded envelope from stdin, stores it, then runs one delivery pass. | 0 stored or duplicate, 2 refused, 6 digest mismatch |
 | `roar setup` | Adds Roar to every Claude and Codex config root on this host. See [Setup](#setup). Safe to run again. | 0, 2 |
 | `roar install <host>` | Copies this binary to another Rex host's `~/.local/bin`, then runs `roar setup` there. | 0, 2 |
@@ -165,6 +165,7 @@ The `ids/` link is written after the rename into `box/`. A crash between the two
 | Change state | Take the message's `flock`. Write `state.json` to a temporary file, fsync, rename, fsync the directory. Release. |
 | Claim for delivery | Hold the message's `flock` for the whole attempt. Another deliverer that finds the lock held skips the message. |
 | Is a native adapter live? | Try a non-blocking `flock` on `adapters/<block>.lock`. If it succeeds, no adapter holds it; release at once. The kernel releases the lock when an adapter dies, so a crash never leaves a stale claim. |
+| Is a watcher live? | The watcher holds `watch.lock` for as long as it runs. Commands test it with a non-blocking `flock`, as for adapters. |
 | Wake an adapter | Adapters poll their `box/<block>/` directory every 250 ms. A directory read is cheap, and polling needs no platform file watcher. |
 
 Retention: unread messages are never pruned. Read and expired messages are kept 7 days, so a late reply can still find its original. Pruning runs during `roar send` and `roar enqueue`.
@@ -195,7 +196,7 @@ Roar reads Claude transcripts for one purpose, message receipt, and never for tu
 Roar uses the status in four places:
 
 1. The Claude adapter polls it and holds a `request` until the status is `idle` or `done`. It accepts only its own Claude's record: owner PID equal to its parent Claude and app `claude-code`. It releases one request per report of rest: a second request waits for a report newer than the first request, or 30 seconds, because Claude may not yet have reported the turn the first one starts.
-2. `roar deliver --watch` retries held messages on `program_status_changed`. It also sweeps every 30 seconds, and keeps sweeping while the event stream is down, because clearing a draft need not change the status.
+2. The [watcher](#the-watcher) retries held messages on `program_status_changed`. It also sweeps every 30 seconds, and keeps sweeping while the event stream is down, because clearing a draft need not change the status.
 3. It is the first gate of the fallback proof.
 4. It confirms a fallback submit: a report made after Enter, by the same process and app, showing a turn.
 
@@ -210,13 +211,36 @@ Status alone cannot prove an empty composer. A typed draft leaves the status `id
 | A native adapter holds `adapters/<block>.lock` | Native. Only the adapter delivers. |
 | The pane has a live [Codex binding](#binding-1) and its thread is loaded on the Codex daemon | Native, by whichever command holds the message lock |
 | No native adapter, and the readiness proof says empty | Fallback, by whichever `roar send`, `roar enqueue`, or `roar deliver` holds the message lock |
-| No native adapter, and the proof says busy, draft, modal, or unknown | Hold. `roar deliver --watch` or the next send retries. |
+| No native adapter, and the proof says busy, draft, modal, or unknown | Hold, and start the [watcher](#the-watcher) if none runs. It retries when the pane comes to rest. |
 | The pane runs something that is not an agent, such as a shell | Hold with `wrong_program`. Roar never types into it; an agent may start there later, and a person can still read the message with `roar inbox`. |
 | The block is gone or its program exited | Expire with `dead_pane` |
 | An earlier attempt for this message has an unknown outcome | Hold. Nothing tries again until `roar resolve`. |
 
 A pane can gain or lose its native adapter. Roar decides per attempt, never per message.
-Without `roar deliver --watch` running on the recipient's host, a held fallback message waits for the next send to that pane or a manual `roar deliver`.
+
+### The watcher
+
+> **A held message always has a watcher.** Whatever holds a typed message also makes sure something will retry it.
+
+Before the watcher, a held message waited for the next send to its pane. On 2026-10-28 an inform to a busy Claude pane without the Roar channel sat for 2 hours 4 minutes. A later send then pushed it out ahead of its own message.
+
+A message *needs the watcher* when it is `queued` and no native adapter holds its pane. That covers every hold reason except `native_adapter`.
+
+| Step | What happens |
+| --- | --- |
+| Start | After its delivery pass, `roar send`, `roar enqueue`, and `roar deliver` check the store. If a message needs the watcher and `watch.lock` is free, they start `roar deliver --watch --until-idle` in a detached block labelled `roar-watch` in the `roar-relay` session. A command run in a test harness, with no binary of its own, starts none. |
+| Run | The watcher takes `watch.lock`, or exits at once if another watcher holds it. It retries on Rex events and every 30 seconds, as below. |
+| Stop | At each sweep and after each event pass, the watcher checks whether any message still needs it. If none does, it releases `watch.lock`, checks once more, and exits. If the second check finds one, it takes the lock back and carries on. |
+
+The second check closes the race with a command that holds a message while the watcher stops. The command writes the hold before it tests the lock. If it found the lock held, the watcher's release came later, so the watcher's second check sees the message.
+
+Two commands can both find the lock free and start two watchers. The second one finds the lock held and exits.
+
+The detached block runs the same `roar` binary as the command that started it, with that command's store as `ROAR_HOME`. It finds `rex` through `REX_BIN_DIR`, which Rex sets in every block. The block closes when the watcher exits.
+
+A message held as `wrong_program` keeps the watcher alive until the pane runs an agent or closes. The watcher costs one open `rex events` stream and a store read per relevant event, so Roar accepts that.
+
+An operator can still run `roar deliver --watch` by hand. It waits for `watch.lock` and never exits on its own.
 
 ### States
 
@@ -473,7 +497,7 @@ A message can also be held before the proof runs: `native_adapter` (a Claude cha
 
 The unknown reasons are `paste_failed`, `changed_before_enter`, `enter_failed`, `no_turn_started`, and `interrupted_while_typing`.
 
-`roar deliver --watch` follows `rex events --all` and retries a pane's oldest held message on `program_status_changed`, `process_changed`, or `child_exited`. It also sweeps every held message every 30 seconds, for events it missed. It delivers one message per pane per pass, because a delivered message starts a turn and the next would only be held as busy.
+The watcher follows `rex events --all`, which is the only server-wide stream that carries block events, and retries a pane's oldest held message on `program_status_changed`, `process_changed`, or `child_exited`. It also sweeps every held message every 30 seconds, for events it missed. It delivers one message per pane per pass, because a delivered message starts a turn and the next would only be held as busy. To find held messages it reads only each message's `state.json`, not the envelope.
 
 If anything fails or changes after step 3, stop without Enter and set `unknown`. The pasted text may now sit in the composer as a draft. Roar does not try to clear it, because it cannot prove that the draft is its own.
 
@@ -543,9 +567,9 @@ The transcript shows a `user` record with the message ID. The message becomes `r
 
 **Fallback into a pane with a draft.**
 The recipient's Claude started without the channel flag, so no adapter lock is held.
-`roar send` runs the proof: status `idle`, the marker row, the cursor at column 19. The verdict is draft, wait. It exits 0 with the message held.
-`roar deliver --watch` runs in a pane on that host. The operator submits the draft. Status goes `working`, then `done`.
-On that event the watcher's proof finds an empty composer. It pastes, probes again, presses Enter, and sees `working`. The message becomes `submitted`.
+`roar send` runs the proof: status `idle`, the marker row, the cursor at column 19. The verdict is draft, wait. No watcher runs, so it starts one, then exits 0 with the message held.
+The operator submits the draft. Status goes `working`, then `done`.
+On that event the watcher's proof finds an empty composer. It pastes, probes again, presses Enter, and sees `working`. The message becomes `submitted`. At its next check nothing is held, so the watcher exits.
 
 **Native attempt with an unknown outcome.**
 `roar send` writes `turn/start` to the Codex daemon, then the connection drops before the result.
@@ -586,6 +610,7 @@ These drive the tests. Each one is covered; the test names are listed after the 
 25. A request reaches Claude only on its own Claude's record of rest, one request per report. A fallback submit counts only on a report made after Enter by the same agent showing a turn.
 26. Typed delivery shows control characters as symbols. Sender fields and attachment names with control characters are refused. Attachments and the message count fall under host limits. A store entry outside its own box or ID is not loaded. Setup refuses a hook path with control characters. The install writes through `mktemp`. A remote `$HOME/` path is literal. A Codex socket must be a user-owned socket in a private directory.
 16. A real Claude and a real Codex that receive a request answer it with `roar send --reply`.
+27. A send that holds a typed message starts a watcher, unless one runs. The watcher delivers the message when the pane comes to rest, without another command, then exits. A watcher started while another runs exits at once. A watcher exits once no queued message lacks a native adapter.
 
 | Criteria | Tests |
 | --- | --- |
@@ -612,6 +637,7 @@ These drive the tests. Each one is covered; the test names are listed after the 
 | 25 | `TestClaudeStatus`, `TestRequestsReleaseOneAtATime`, `TestRequestWaitsForRest`, `TestTurnEvidence` |
 | 26 | `TestTerminalSafe`, `TestValidate`, `TestHeaderCannotBeForged`, `TestLimitsCountAttachmentsAndMessages`, `TestGetChecksWhereTheMessageLives`, `TestHookCommandQuoting`, `TestInstallScriptIgnoresPlantedSymlink`, `TestRoarCommandKeepsHomePathLiteral`, `TestDialChecksTheSocketDirectory` |
 | 17 | `TestDeliveryClearsEarlierReason` (the side-thread case no longer applies: delivery reads the bound thread's own status) |
+| 27 | `TestSendStartsWatcherThatDeliversAndExits`, `TestWatchUntilIdleYieldsToRunningWatcher`, `TestWatchUntilIdleExitsWhenNothingHeld`, `TestNeedsWatcher` |
 
 ## Security model
 
@@ -690,6 +716,9 @@ Live probes on 2026-10-27 used Claude Code 2.1.311, Codex CLI 0.164.0, and two R
 | This machine's own name works as a host prefix | Live on Stiletto (host name `Stiletto.local`, Rex label empty): `roar ready stiletto:claude@roar` gave `wait: busy` for the Claude pane and `STILETTO:codex@roar` gave `empty` for the Codex pane. `Baroni:nonexistent-xyz` still resolved on Baroni, and `nohost:codex@roar` was still refused. |
 | A daemon-backed Codex passes the daemon's pane to its commands | Live: the `~/.codex` daemon (PID 87299) carried `REX_BLOCK` of a closed session, so `roar send --reply` from the Codex pane in session `roar` failed with `no_such_message`, and its messages arrived from `?/7f826959`. The burns session saw the same. The thread's `thread/turns/list` items start with Roar's header. With the fix, `roar inbox` run with that environment and `CODEX_THREAD_ID` of the roar pane's thread listed that pane's inbox and recorded the binding (PID 7898); an unknown thread was refused with `unbound_codex_thread`. |
 | Codex's daemon socket is a symlink | Live: `~/.codex/app-server-control/app-server-control.sock` links to a socket in `/private/tmp/codex-daemon-501/` (mode 0700). A first hardening that refused symlinks broke identity lookup through the real daemon; the check now follows the link and requires a private directory. With it, the roar pane's thread was bound again live. |
+| A held message waited for the next send to its pane | Live on Stiletto, 2026-10-28: cop's Claude ran without `server:roar`, so each message to it was typed. `rm-01M60WRJJD9KPSTFETZKXW6KJF` stayed queued from 09:16:51 to 11:21:52 UTC and went out 130 ms after the send of `rm-01M613XF98JG6HW2C8H5DX60FP`, which stayed queued in its place. No watcher ran. |
+| The watcher starts, delivers, and exits on its own | Live on Stiletto, 2026-10-28, Claude Code 2.1.312 (`--model haiku`, no Roar channel) in a Rex pane, mid-turn: `roar send` printed `queued busy` at 21:35:34, and a `roar-watch` block in `roar-relay` held `watch.lock`. At 21:35:56 Claude reported `done` and the message became `submitted` (`rex_submit`). Claude showed the header and answered. The watcher exited by 21:35:58 and its block closed. |
+| `rex events` carries block events server-wide only with `--all` | Live: starting and ending a command in a new pane gave `process_changed` and `child_exited` on `rex events --all --json` and neither on plain `rex events --json`. The Rex events reference documents the same scopes. |
 | A new hook needs operator trust; a bypass is refused | `--dangerously-bypass-hook-trust` exists, but Roar never uses it, and an agent's attempt to was refused by its own safety check |
 
 ## Related documents

@@ -109,6 +109,24 @@ func (h Host) run(ctx context.Context, command []string, input []byte, wait bool
 	return h.finish(ctx, session, block, nil)
 }
 
+// Detach starts command in a detached block and returns without waiting.
+// The block closes when the command exits, even after a quick failure, so
+// it leaves nothing behind.
+func (h Host) Detach(ctx context.Context, label string, command []string) error {
+	session, err := h.session(ctx)
+	if err != nil {
+		return err
+	}
+	req := map[string]any{"session_id": session, "flavor": "com.superlogical.terminal.shell", "label": label, "options": map[string]any{
+		"shell": "none", "login": false, "command": command,
+		"exit": map[string]any{"on_completion": true, "quick_exit_threshold_ms": 0},
+	}}
+	var created struct {
+		BlockID string `json:"block_id"`
+	}
+	return h.Rex.JSON(ctx, &created, "api", "call", "session.new_block", mustJSON(req))
+}
+
 func (h Host) finish(ctx context.Context, session, block string, cause error) (int, string, error) {
 	timeout := h.Timeout
 	if timeout == 0 {
