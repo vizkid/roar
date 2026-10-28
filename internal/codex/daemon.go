@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"sync"
 	"syscall"
+	"time"
 
 	"github.com/gorilla/websocket"
 )
@@ -22,6 +23,10 @@ import (
 func Socket(home string) string {
 	return filepath.Join(home, "app-server-control", "app-server-control.sock")
 }
+
+// maxFrame bounds one daemon reply. A thread's recent turns can be large,
+// but not unbounded.
+const maxFrame = 64 << 20
 
 type rpcError struct {
 	Code    int    `json:"code"`
@@ -54,13 +59,20 @@ type client struct {
 // dial connects and initializes. It refuses a socket another user owns:
 // whoever owns it would receive the message.
 func dial(ctx context.Context, sock string) (*client, error) {
-	fi, err := os.Stat(sock)
+	// Codex links app-server-control.sock to a socket in a private
+	// directory under /tmp, because socket paths are short. Follow the link,
+	// then require a socket this user owns in a directory only it can write.
+	real, err := filepath.EvalSymlinks(sock)
 	if err != nil {
 		return nil, err
 	}
-	if st, ok := fi.Sys().(*syscall.Stat_t); !ok || int(st.Uid) != os.Getuid() {
-		return nil, fmt.Errorf("%s is not owned by this user", sock)
+	if err := private(real, os.ModeSocket); err != nil {
+		return nil, err
 	}
+	if err := private(filepath.Dir(real), os.ModeDir); err != nil {
+		return nil, err
+	}
+	sock = real
 	d := websocket.Dialer{NetDialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
 		return (&net.Dialer{}).DialContext(ctx, "unix", sock)
 	}}
@@ -71,6 +83,7 @@ func dial(ctx context.Context, sock string) (*client, error) {
 	if err != nil {
 		return nil, err
 	}
+	conn.SetReadLimit(maxFrame)
 	c := &client{conn: conn, pending: map[string]chan reply{}, done: make(chan struct{})}
 	go c.read()
 	init := map[string]any{"clientInfo": map[string]string{"name": "roar", "version": "1"}}
@@ -85,11 +98,31 @@ func dial(ctx context.Context, sock string) (*client, error) {
 	return c, nil
 }
 
+// private checks that path has type kind, belongs to this user, and is not
+// writable by group or others.
+func private(path string, kind os.FileMode) error {
+	fi, err := os.Lstat(path)
+	if err != nil {
+		return err
+	}
+	st, ok := fi.Sys().(*syscall.Stat_t)
+	switch {
+	case fi.Mode().Type() != kind:
+		return fmt.Errorf("%s is not a %v", path, kind)
+	case !ok || int(st.Uid) != os.Getuid():
+		return fmt.Errorf("%s is not owned by this user", path)
+	case fi.Mode().Perm()&0o022 != 0:
+		return fmt.Errorf("%s is writable by others", path)
+	}
+	return nil
+}
+
 func (c *client) close() { c.conn.Close() }
 
 func (c *client) send(v any) error {
 	c.write.Lock()
 	defer c.write.Unlock()
+	c.conn.SetWriteDeadline(time.Now().Add(DeliverTimeout))
 	return c.conn.WriteJSON(v)
 }
 

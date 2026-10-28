@@ -50,14 +50,19 @@ func (h Host) roarCommand(args ...string) []string {
 	if bin == "" {
 		bin = DefaultBin
 	}
-	if !strings.HasPrefix(bin, "$HOME/") {
-		bin = "'" + strings.ReplaceAll(bin, "'", `'\''`) + "'"
+	// Only $HOME expands; the rest of the path is literal, never shell source.
+	if rest, ok := strings.CutPrefix(bin, "$HOME/"); ok {
+		bin = `"$HOME"/` + shellQuote(rest)
 	} else {
-		bin = `"` + bin + `"`
+		bin = shellQuote(bin)
 	}
 	cmd := []string{"/usr/bin/env"}
 	cmd = append(cmd, h.Env...)
 	return append(append(cmd, "/bin/sh", "-c", "exec "+bin+` "$@"`, "roar"), args...)
+}
+
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
 // run starts command in a detached block. With raw input it waits for the

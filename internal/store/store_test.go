@@ -2,6 +2,8 @@ package store
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -225,5 +227,56 @@ func TestSentRecords(t *testing.T) {
 	}
 	if strings.Contains(sent[0].Text, "x") {
 		t.Fatal("sent record keeps the body; it should keep only routing")
+	}
+}
+
+// Attachments count toward the host's budget, and so does the number of
+// unread messages: empty bodies must not get through for free.
+func TestLimitsCountAttachmentsAndMessages(t *testing.T) {
+	s := newStore(t)
+	s.Limits = Limits{PerRecipient: 1 << 20, PerHost: 1 << 20, FilesPerHost: 20, Messages: 3}
+	withFile := func() error {
+		e := msg("block:r", "")
+		e.ID = envelope.NewID(time.Now())
+		data := []byte("0123456789012")
+		e.Files = []envelope.File{envelope.FileFor("f.txt", data)}
+		_, err := s.PutWithFiles(e, t0, map[string][]byte{"f.txt": data})
+		return err
+	}
+	if err := withFile(); err != nil {
+		t.Fatal(err)
+	}
+	if err := withFile(); !errors.Is(err, ErrLimit) {
+		t.Fatalf("second 13-byte attachment: %v", err)
+	}
+	for i := range 3 {
+		e := msg("block:q", "")
+		e.ID = envelope.NewID(time.Now())
+		_, err := s.Put(e, t0)
+		if (i < 2) != (err == nil) {
+			t.Fatalf("empty message %d: %v", i, err)
+		}
+	}
+}
+
+// A message is found only in its recipient's box under the store, under
+// its own ID: an index link pointing elsewhere is not followed.
+func TestGetChecksWhereTheMessageLives(t *testing.T) {
+	s := newStore(t)
+	e := msg("block:r", "real")
+	put(t, s, e)
+	m, _ := s.Get(e.ID)
+	outside := filepath.Join(t.TempDir(), "msg")
+	os.CopyFS(outside, os.DirFS(m.Dir))
+	other := envelope.NewID(time.Now())
+	os.Symlink(outside, filepath.Join(s.root, "ids", other))
+	if _, err := s.Get(other); err == nil {
+		t.Fatal("followed an index link out of the store")
+	}
+	// A copy under another ID's name in the right box is not that message.
+	os.CopyFS(filepath.Join(s.root, "box", "block:r", other), os.DirFS(m.Dir))
+	os.Remove(filepath.Join(s.root, "ids", other))
+	if _, err := s.Get(other); err == nil {
+		t.Fatal("loaded a message whose envelope has another ID")
 	}
 }

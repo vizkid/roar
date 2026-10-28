@@ -9,6 +9,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/vizkid/roar/internal/envelope"
 	"github.com/vizkid/roar/internal/ready"
 	"github.com/vizkid/roar/internal/rex"
 	"github.com/vizkid/roar/internal/store"
@@ -104,7 +105,7 @@ func (d *Deliverer) typeMessage(ctx context.Context, c *store.Claim, pid int, ag
 		err := c.Move(store.Unknown, d.Now(), func(r *store.Record) { r.Reason = reason })
 		return outcome(c.Message()), err
 	}
-	if err := d.Rex.Paste(ctx, to.Session, to.Block, m.Render()); err != nil {
+	if err := d.Rex.Paste(ctx, to.Session, to.Block, envelope.TerminalSafe(m.Render())); err != nil {
 		return unknown("paste_failed")
 	}
 	if r := ready.Status(ctx, d.Rex, to.Session, to.Block, pid); r.Verdict != ready.Empty {

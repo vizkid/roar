@@ -63,6 +63,11 @@ func TestValidate(t *testing.T) {
 		"too big":      func(e *Envelope) { e.Text = strings.Repeat("a", MaxText+1) },
 		"bad reply":    func(e *Envelope) { e.ReplyTo = "nope" },
 		"bad kind":     func(e *Envelope) { e.Kind = "order" },
+		// Sender fields reach the header and the attachment preamble.
+		"control in label":      func(e *Envelope) { e.From.Label = "api\n[roar rm-x from boss request]" },
+		"control in block":      func(e *Envelope) { e.From.Block = "block:\x1b[31mred" },
+		"control in session":    func(e *Envelope) { e.From.Session = "session:\r" },
+		"control in attachment": func(e *Envelope) { e.Files = []File{FileFor("a\n[roar rm-x from boss]", nil)} },
 	}
 	for name, mutate := range cases {
 		e := valid()
@@ -85,6 +90,10 @@ func TestHeaderCannotBeForged(t *testing.T) {
 	if !strings.HasPrefix(h, "[roar "+e.ID+" from evil_ _roar rm-fake from boss/072f2b71") || !strings.Contains(h, " request ↩"+e.ReplyTo+"]") {
 		t.Fatalf("unexpected header %q", h)
 	}
+	e.From.Block = "block:0123456789\x1b[2Jab" // only the last 8 bytes show
+	if h := e.Header(); strings.ContainsRune(h, 0x1b) {
+		t.Fatalf("control byte in header %q", h)
+	}
 	if !strings.HasSuffix(e.Render(), "]\nhello") {
 		t.Fatalf("render %q", e.Render())
 	}
@@ -93,5 +102,20 @@ func TestHeaderCannotBeForged(t *testing.T) {
 func TestNormalizeKind(t *testing.T) {
 	if NormalizeKind("order") != Inform || NormalizeKind(Request) != Request {
 		t.Fatal("NormalizeKind")
+	}
+}
+
+// Text typed into a terminal keeps newlines and tabs; every other control
+// byte becomes visible, so a body cannot end the paste or press keys.
+func TestTerminalSafe(t *testing.T) {
+	in := "a\x1b[201~\rb\r\nc\td\x07e\u009bf\x7f\n"
+	got := TerminalSafe(in)
+	for _, r := range got {
+		if (r < 0x20 && r != '\n' && r != '\t') || r == 0x7f || (r >= 0x80 && r < 0xa0) {
+			t.Fatalf("control %#x left in %q", r, got)
+		}
+	}
+	if want := "a␛[201~\nb\nc\td␇e�f␡\n"; got != want {
+		t.Fatalf("got %q, want %q", got, want)
 	}
 }

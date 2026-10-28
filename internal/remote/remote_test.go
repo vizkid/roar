@@ -160,3 +160,44 @@ func TestEnqueueCarriesAttachments(t *testing.T) {
 		t.Fatalf("stored %d bytes, sent %d", len(got), len(data))
 	}
 }
+
+// A $HOME/ path runs as that literal file: the rest is never shell source.
+func TestRoarCommandKeepsHomePathLiteral(t *testing.T) {
+	home := t.TempDir()
+	dir := filepath.Join(home, "x$(touch pwned)")
+	os.MkdirAll(dir, 0o755)
+	os.WriteFile(filepath.Join(dir, "roar"), []byte("#!/bin/sh\necho ran \"$@\"\n"), 0o755)
+	cmd := Host{Bin: "$HOME/x$(touch pwned)/roar"}.roarCommand("status")
+	c := exec.Command(cmd[0], cmd[1:]...)
+	c.Dir, c.Env = home, []string{"HOME=" + home, "PATH=/usr/bin:/bin"}
+	out, err := c.CombinedOutput()
+	if err != nil || strings.TrimSpace(string(out)) != "ran status" {
+		t.Fatalf("%v %q", err, out)
+	}
+	if _, err := os.Stat(filepath.Join(home, "pwned")); err == nil {
+		t.Fatal("the path ran as a command substitution")
+	}
+}
+
+// The install script writes through a fresh temporary file, so a symlink
+// planted at a predictable name cannot redirect it.
+func TestInstallScriptIgnoresPlantedSymlink(t *testing.T) {
+	home := t.TempDir()
+	bin := filepath.Join(home, ".local", "bin")
+	os.MkdirAll(bin, 0o755)
+	victim := filepath.Join(home, "victim")
+	os.WriteFile(victim, []byte("keep"), 0o644)
+	os.Symlink(victim, filepath.Join(bin, ".roar.tmp"))
+	c := exec.Command("/bin/sh", "-c", strings.Replace(installScript, "stty -echo; ", "", 1))
+	c.Env = []string{"HOME=" + home, "PATH=/usr/bin:/bin"}
+	c.Stdin = strings.NewReader("aGVsbG8=\n")
+	if out, err := c.CombinedOutput(); err != nil || !strings.Contains(string(out), "ROAR-INSTALLED") {
+		t.Fatalf("%v %q", err, out)
+	}
+	if b, _ := os.ReadFile(victim); string(b) != "keep" {
+		t.Fatalf("victim overwritten: %q", b)
+	}
+	if b, _ := os.ReadFile(filepath.Join(bin, "roar")); string(b) != "hello" {
+		t.Fatalf("installed %q", b)
+	}
+}

@@ -71,6 +71,14 @@ func (e Envelope) Validate() error {
 	if e.Kind != Inform && e.Kind != Request {
 		return fmt.Errorf("invalid kind %q", e.Kind)
 	}
+	// Sender fields reach the header and the attachment preamble. A
+	// forwarded envelope is the remote host's claim, so refuse controls.
+	for _, f := range []string{e.From.HostID, e.From.Session, e.From.Block, e.From.Label,
+		e.To.HostID, e.To.Session, e.To.Block, e.To.Label} {
+		if hasControl(f) {
+			return fmt.Errorf("control character in address %q", f)
+		}
+	}
 	return e.validateFiles()
 }
 
@@ -100,7 +108,7 @@ func Sanitize(s string) string {
 	var b strings.Builder
 	space := false
 	for _, r := range s {
-		if r < 0x20 || r == 0x7f || (r >= 0x80 && r < 0xa0) || r == ' ' {
+		if isControl(r) || r == ' ' {
 			space = b.Len() > 0
 			continue
 		}
@@ -119,7 +127,38 @@ func Sanitize(s string) string {
 func shortBlock(id string) string {
 	id = strings.TrimPrefix(id, "block:")
 	if len(id) > 8 {
-		return id[len(id)-8:]
+		id = id[len(id)-8:]
 	}
 	return Sanitize(id)
+}
+
+func isControl(r rune) bool {
+	return r < 0x20 || r == 0x7f || (r >= 0x80 && r < 0xa0)
+}
+
+func hasControl(s string) bool {
+	return strings.IndexFunc(s, isControl) >= 0
+}
+
+// TerminalSafe prepares text for typing into a terminal. It keeps newlines
+// and tabs and shows every other control character as a visible symbol, so
+// a body cannot end a bracketed paste (ESC [201~) or send keys. A carriage
+// return becomes a newline.
+func TerminalSafe(s string) string {
+	s = strings.ReplaceAll(s, "\r\n", "\n")
+	return strings.Map(func(r rune) rune {
+		switch {
+		case r == '\n' || r == '\t':
+			return r
+		case r == '\r':
+			return '\n'
+		case r < 0x20:
+			return 0x2400 + r // the Unicode control picture, as ␛ for ESC
+		case r == 0x7f:
+			return '␡'
+		case r >= 0x80 && r < 0xa0:
+			return '�'
+		}
+		return r
+	}, s)
 }

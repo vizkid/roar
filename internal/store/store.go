@@ -19,14 +19,17 @@ var (
 	ErrLimit    = errors.New("limit_exceeded")
 )
 
-// Limits cap unread message bytes.
+// Limits cap unread messages: body bytes per recipient and per host,
+// attachment bytes per host, and the number of unread messages per host.
 type Limits struct {
 	PerRecipient int64
 	PerHost      int64
+	FilesPerHost int64
+	Messages     int
 }
 
 // DefaultLimits match the spec: 2 MiB per recipient, 16 MiB per host.
-var DefaultLimits = Limits{PerRecipient: 2 << 20, PerHost: 16 << 20}
+var DefaultLimits = Limits{PerRecipient: 2 << 20, PerHost: 16 << 20, FilesPerHost: 256 << 20, Messages: 1000}
 
 // Store is one host's message directory.
 type Store struct {
@@ -148,7 +151,25 @@ func (s *Store) Get(id string) (Message, error) {
 		}
 		dir = matches[0]
 	}
-	return load(dir)
+	m, err := load(dir)
+	if err != nil {
+		return m, err
+	}
+	// The message must live where its own ID and recipient say, under this
+	// store: an index link or box entry pointing elsewhere is not it.
+	box, _ := filepath.EvalSymlinks(filepath.Join(s.root, "box"))
+	if m.Envelope.ID != id || filepath.Dir(filepath.Dir(dir)) != box || filepath.Base(filepath.Dir(dir)) != m.Envelope.To.Block {
+		return Message{}, ErrNotFound
+	}
+	return m, nil
+}
+
+func fileBytes(e envelope.Envelope) int64 {
+	var n int64
+	for _, f := range e.Files {
+		n += f.Size
+	}
+	return n
 }
 
 func load(dir string) (Message, error) {
@@ -241,16 +262,24 @@ func (s *Store) checkLimits(e envelope.Envelope) error {
 		return err
 	}
 	size := int64(len(e.Text))
-	host, recipient := size, size
+	host, recipient, files, count := size, size, fileBytes(e), 1
 	for _, m := range all {
 		if m.Record.State.Final() {
 			continue
 		}
 		n := int64(len(m.Envelope.Text))
 		host += n
+		files += fileBytes(m.Envelope)
+		count++
 		if m.Envelope.To.Block == e.To.Block {
 			recipient += n
 		}
+	}
+	if s.Limits.FilesPerHost > 0 && files > s.Limits.FilesPerHost {
+		return fmt.Errorf("%w: host would hold %d unread attachment bytes; the limit is %d", ErrLimit, files, s.Limits.FilesPerHost)
+	}
+	if s.Limits.Messages > 0 && count > s.Limits.Messages {
+		return fmt.Errorf("%w: host would hold %d unread messages; the limit is %d", ErrLimit, count, s.Limits.Messages)
 	}
 	if recipient > s.Limits.PerRecipient {
 		return fmt.Errorf("%w: recipient would hold %d unread bytes; the limit is %d", ErrLimit, recipient, s.Limits.PerRecipient)

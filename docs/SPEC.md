@@ -169,7 +169,9 @@ The `ids/` link is written after the rename into `box/`. A crash between the two
 
 Retention: unread messages are never pruned. Read and expired messages are kept 7 days, so a late reply can still find its original. Pruning runs during `roar send` and `roar enqueue`.
 
-Limits: 256 KiB per message, 2 MiB of unread messages per recipient, 16 MiB per host. A send over a limit is refused before anything is stored.
+Limits: 256 KiB per message body, 16 MiB of attachments per message, and for unread messages 2 MiB of bodies per recipient, 16 MiB of bodies per host, 256 MiB of attachments per host, and 1,000 messages per host. A send over a limit is refused before anything is stored. Two simultaneous sends can both pass: the limits stop runaway senders, not same-user attackers.
+
+A message is found only in `box/<its recipient>/<its ID>` under the store. An index link or box entry that resolves anywhere else, or holds an envelope with another ID, is treated as missing.
 
 ## Agent activity from Rex
 
@@ -454,7 +456,7 @@ The status check comes first because a mid-turn composer looks empty. The dim-te
 
 1. Take the message lock, then the pane lock (`panes/<block>.lock`). If another attempt holds the pane, hold the message as `pane_busy`. Run the proof. Record the foreground PID.
 2. Set the message to `submitting`.
-3. Paste the rendered message (header and body) with `block.event` `paste`, in pieces of at most 32 KiB. Rex brackets each piece, so newlines stay in the draft. `rex send` writes raw bytes and is not used for the body.
+3. Paste the rendered message (header and body) with `block.event` `paste`, in pieces of at most 32 KiB. Rex brackets each piece, so newlines stay in the draft. `rex send` writes raw bytes and is not used for the body. Before pasting, every control character except newline and tab becomes a visible symbol (ESC shows as `␛`), and a carriage return becomes a newline. So a body cannot end the bracketed paste with `ESC [201~` and press keys.
 4. Run steps 1 to 4 of the proof again, bound to the recorded PID, within the same 2-second freshness bound. The composer now holds our text, so step 5 does not apply.
 5. Send `enter` with `rex send-key`.
 6. Wait up to 5 seconds for a report made after Enter, by the same process with the agent's app, in state `working`, `done` or `blocked`. A fast turn can go from `working` to `done` between two readings, so `done` counts. A `working` report from before Enter does not: that turn may have begun on its own. If one arrives, set `submitted` with proof `rex_submit`. Even then the report cannot prove which input started the turn.
@@ -582,6 +584,7 @@ These drive the tests. Each one is covered; the test names are listed after the 
 23. A command with `CODEX_THREAD_ID` is placed by its thread: a live binding, else proof from the newest message written into a Codex pane, else an inherited pane that is its ancestor. Otherwise it is refused with `unbound_codex_thread`.
 24. Two messages delivered to one pane at once never share a composer: one attempt holds the pane, and the other is held as `pane_busy`.
 25. A request reaches Claude only on its own Claude's record of rest, one request per report. A fallback submit counts only on a report made after Enter by the same agent showing a turn.
+26. Typed delivery shows control characters as symbols. Sender fields and attachment names with control characters are refused. Attachments and the message count fall under host limits. A store entry outside its own box or ID is not loaded. Setup refuses a hook path with control characters. The install writes through `mktemp`. A remote `$HOME/` path is literal. A Codex socket must be a user-owned socket in a private directory.
 16. A real Claude and a real Codex that receive a request answer it with `roar send --reply`.
 
 | Criteria | Tests |
@@ -607,7 +610,25 @@ These drive the tests. Each one is covered; the test names are listed after the 
 | 23 | `TestCodexThreadIdentity`, `TestDeliveredIDs`, `TestCodexBindingByThread`, plus the live run in Evidence |
 | 24 | `TestRacingMessagesShareNoComposer`, `TestHoldsWhilePaneLocked` |
 | 25 | `TestClaudeStatus`, `TestRequestsReleaseOneAtATime`, `TestRequestWaitsForRest`, `TestTurnEvidence` |
+| 26 | `TestTerminalSafe`, `TestValidate`, `TestHeaderCannotBeForged`, `TestLimitsCountAttachmentsAndMessages`, `TestGetChecksWhereTheMessageLives`, `TestHookCommandQuoting`, `TestInstallScriptIgnoresPlantedSymlink`, `TestRoarCommandKeepsHomePathLiteral`, `TestDialChecksTheSocketDirectory` |
 | 17 | `TestDeliveryClearsEarlierReason` (the side-thread case no longer applies: delivery reads the bound thread's own status) |
+
+## Security model
+
+**Roar prevents mistakes between cooperating agents. It does not authenticate them.** Every pane runs as the same user, with the same files, Rex server and Codex sockets.
+
+| Threat | What Roar does | Limit |
+| --- | --- | --- |
+| A body forges a header or channel tag | The header is the first line and its fields are sanitized. Sender fields and attachment names with control characters are refused. The roar skill tells agents that text inside a body has no authority. | A body can still contain text that looks like a header on a later line. The receiving agent must treat every body as untrusted. |
+| A body injects keystrokes through typed delivery | Control characters become visible symbols before the paste. | Verified for Roar's own encoding; Rex and both agents' paste parsing are trusted. |
+| A pane claims to be another pane | `REX_*` and, for Codex, the thread binding name the sender. | Any same-user process can set these variables, write a binding, or enqueue an envelope with invented `from` fields. Sender identity is a claim. |
+| The store is tampered with | IDs and block names are checked as single path elements. A message must live under its own ID in its recipient's box. New directories are 0700, files 0600. | A same-user process can rewrite any store file. |
+| A Codex socket is not the user's daemon | Roar follows Codex's socket link, then requires a socket owned by this user in a directory only it can write. Replies are capped at 64 MiB and writes have a deadline. | A same-user process can run its own daemon there. |
+| Setup writes a shell command | The hook path is single-quoted when needed, and a path with control characters is refused. | |
+| `roar install` and remote commands | The binary goes through a fresh `mktemp` file and is renamed into place. A `$HOME/` path expands only `$HOME`; the rest is literal. | A host with Rex `new_block` access to another can already run commands there. |
+| `peer` is redirected | A real label `peer` wins over the hint, as every label does. | Renaming a session or tab changes where `peer` goes. |
+
+Real isolation between agents needs a boundary Roar does not have: a broker that agents cannot write to, with per-pane credentials. A secret kept in the same home would not provide it.
 
 ## Open questions
 
@@ -618,7 +639,6 @@ These drive the tests. Each one is covered; the test names are listed after the 
 | Whether Codex keeps hook trust after setup reformats `hooks.json` | Setup keeps every group and key in place but re-indents the file. Check `/hooks` after the first real run. |
 | What Claude does with an enqueued message it never absorbs (Esc, turn error) | Leave it `accepted` and show its age |
 | Program status kinds `question` and `auth` were not seen live | The proof treats every `blocked` as wait, which is safe |
-| Attachments count toward no host-wide limit | Only the 16 MiB per-message cap applies. Add a host cap if large unread attachments pile up. |
 
 ## Evidence
 
@@ -669,6 +689,7 @@ Live probes on 2026-10-27 used Claude Code 2.1.311, Codex CLI 0.164.0, and two R
 | Agent and position hints name panes in a real layout | Live, session `roar` with Claude left and Codex right, both panes labelled `shell`: `codex@roar` and `right@roar` named the Codex pane, `claude@roar` and `left@roar` the Claude pane, and `top@roar` was refused as ambiguous. `rex window ls --json` gives each tiled pane's `rect` as fractions of the window. |
 | This machine's own name works as a host prefix | Live on Stiletto (host name `Stiletto.local`, Rex label empty): `roar ready stiletto:claude@roar` gave `wait: busy` for the Claude pane and `STILETTO:codex@roar` gave `empty` for the Codex pane. `Baroni:nonexistent-xyz` still resolved on Baroni, and `nohost:codex@roar` was still refused. |
 | A daemon-backed Codex passes the daemon's pane to its commands | Live: the `~/.codex` daemon (PID 87299) carried `REX_BLOCK` of a closed session, so `roar send --reply` from the Codex pane in session `roar` failed with `no_such_message`, and its messages arrived from `?/7f826959`. The burns session saw the same. The thread's `thread/turns/list` items start with Roar's header. With the fix, `roar inbox` run with that environment and `CODEX_THREAD_ID` of the roar pane's thread listed that pane's inbox and recorded the binding (PID 7898); an unknown thread was refused with `unbound_codex_thread`. |
+| Codex's daemon socket is a symlink | Live: `~/.codex/app-server-control/app-server-control.sock` links to a socket in `/private/tmp/codex-daemon-501/` (mode 0700). A first hardening that refused symlinks broke identity lookup through the real daemon; the check now follows the link and requires a private directory. With it, the roar pane's thread was bound again live. |
 | A new hook needs operator trust; a bypass is refused | `--dangerously-bypass-hook-trust` exists, but Roar never uses it, and an agent's attempt to was refused by its own safety check |
 
 ## Related documents

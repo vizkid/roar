@@ -100,6 +100,13 @@ func (h Host) Status(ctx context.Context, ids ...string) ([]StatusRow, error) {
 	return rows, nil
 }
 
+// installScript decodes the binary from stdin into a fresh temporary file
+// (mktemp creates it exclusively, so a planted symlink is never followed),
+// then renames it over roar.
+const installScript = `stty -echo; set -e; d="$HOME/.local/bin"; mkdir -p "$d"; ` +
+	`t=$(mktemp "$d/.roar.XXXXXX"); trap 'rm -f "$t"' EXIT; base64 -d > "$t"; ` +
+	`chmod 755 "$t"; mv -f "$t" "$d/roar"; trap - EXIT; echo ROAR-INSTALLED`
+
 // Install copies this binary to DefaultBin on the host. The host must have
 // the same operating system and architecture.
 func (h Host) Install(ctx context.Context, binary []byte) error {
@@ -112,9 +119,7 @@ func (h Host) Install(ctx context.Context, binary []byte) error {
 	if code != 0 || !strings.Contains(screen, want) {
 		return fmt.Errorf("%w: host is %q, this binary is %q", ErrRefused, strings.TrimSpace(screen), want)
 	}
-	script := `stty -echo; set -e; d="$HOME/.local/bin"; mkdir -p "$d"; base64 -d > "$d/.roar.tmp"; ` +
-		`chmod 755 "$d/.roar.tmp"; mv "$d/.roar.tmp" "$d/roar"; echo ROAR-INSTALLED`
-	code, screen, err = h.run(ctx, []string{"/bin/sh", "-c", script}, binary, false)
+	code, screen, err = h.run(ctx, []string{"/bin/sh", "-c", installScript}, binary, false)
 	if err != nil {
 		return err
 	}

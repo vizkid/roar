@@ -3,9 +3,11 @@ package setup
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"unicode"
 )
 
 const hookArgs = " hook codex"
@@ -13,6 +15,9 @@ const hookArgs = " hook codex"
 // Codex installs the skill in a Codex home and adds the SessionStart hook
 // group that binds each pane to its thread.
 func Codex(home, roar string) (string, error) {
+	if strings.IndexFunc(roar, unicode.IsControl) >= 0 {
+		return "", fmt.Errorf("roar's path %q has a control character; it cannot go in a hook command", roar)
+	}
 	var done []string
 	if err := installSkill(home, &done); err != nil {
 		return "", err
@@ -95,7 +100,8 @@ func isRoarHook(command string) bool {
 	return ok && filepath.Base(strings.Trim(bin, "'")) == "roar"
 }
 
-// quote makes a path safe as the first word of a shell command.
+// quote makes a path safe as the first word of a shell command. A path
+// that needs no quoting stays bare, so an installed hook keeps its text.
 func quote(path string) string {
 	if strings.ContainsAny(path, " '\"\\$`!*?[]{}()<>|&;#~") {
 		return "'" + strings.ReplaceAll(path, "'", `'\''`) + "'"

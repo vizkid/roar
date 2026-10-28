@@ -213,3 +213,20 @@ func TestSetupGoesOnPastAFailedRoot(t *testing.T) {
 		t.Fatal("the root after the failure was skipped")
 	}
 }
+
+// The hook command is shell source: a path that would split it is quoted,
+// and one with control characters is refused.
+func TestHookCommandQuoting(t *testing.T) {
+	home := t.TempDir()
+	if _, err := Codex(home, "/a b/roar"); err != nil {
+		t.Fatal(err)
+	}
+	if _, groups := readHooks(t, home); !slices.Equal(groups, []string{"'/a b/roar' hook codex"}) {
+		t.Fatalf("groups %q", groups)
+	}
+	for _, bad := range []string{"/a\nrm -rf x\n/roar", "/a\tb/roar"} {
+		if _, err := Codex(t.TempDir(), bad); err == nil {
+			t.Fatalf("%q was written into a shell command", bad)
+		}
+	}
+}

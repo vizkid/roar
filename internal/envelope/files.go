@@ -50,7 +50,7 @@ func (e Envelope) validateFiles() error {
 	var total int64
 	seen := map[string]bool{}
 	for _, f := range e.Files {
-		if f.Name == "" || strings.HasPrefix(f.Name, ".") || strings.ContainsAny(f.Name, "/\\\x00") || len(f.Name) > 128 {
+		if f.Name == "" || strings.HasPrefix(f.Name, ".") || strings.ContainsAny(f.Name, "/\\") || hasControl(f.Name) || len(f.Name) > 128 {
 			return fmt.Errorf("invalid attachment name %q", f.Name)
 		}
 		if seen[f.Name] {
