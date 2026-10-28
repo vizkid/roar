@@ -10,9 +10,16 @@ import (
 var errNotInPane = errors.New("not_in_rex_pane: run roar inside a Rex pane (REX_SESSION and REX_BLOCK unset)")
 
 // self is the caller's own pane. It prevents mistakes, not attacks: any
-// process can set these variables.
+// process can set these variables. A command Codex runs is placed by its
+// thread instead, since a daemon-backed Codex passes the wrong pane.
 func self(ctx context.Context, env Env) (envelope.Address, error) {
 	session, block := env.Getenv("REX_SESSION"), env.Getenv("REX_BLOCK")
+	if thread := env.Getenv("CODEX_THREAD_ID"); thread != "" {
+		var err error
+		if session, block, err = codexPane(ctx, env, thread, session, block); err != nil {
+			return envelope.Address{}, err
+		}
+	}
 	if session == "" || block == "" {
 		return envelope.Address{}, errNotInPane
 	}

@@ -11,7 +11,7 @@ import (
 )
 
 // codex delivers through the pane's Codex daemon while its binding is live:
-// Rex still reports the TUI that ran the hook in the foreground. It returns
+// Rex still reports the bound Codex TUI, alive, in the foreground. It returns
 // false when it sent nothing, so typing may follow.
 func (d *Deliverer) codex(ctx context.Context, c *store.Claim) (bool, error) {
 	to := c.Message().Envelope.To
@@ -19,8 +19,7 @@ func (d *Deliverer) codex(ctx context.Context, c *store.Claim) (bool, error) {
 	if !ok {
 		return false, nil
 	}
-	p, err := d.Rex.Process(ctx, to.Session, to.Block)
-	if err != nil || p.Foreground == nil || p.Foreground.PID != b.PID {
+	if !d.Rex.Runs(ctx, to.Session, to.Block, b.PID, "codex") {
 		return false, nil
 	}
 	writer := fmt.Sprintf("codex:%d:%d", os.Getpid(), time.Now().UnixNano())

@@ -52,6 +52,14 @@ func (p Proc) Agent() string {
 	return ""
 }
 
+// Runs reports whether pid is still the pane's live foreground process and
+// runs agent. A matching PID alone could be a reused one.
+func (c Client) Runs(ctx context.Context, session, block string, pid int, agent string) bool {
+	p, err := c.Process(ctx, session, block)
+	return err == nil && p.LastExit == nil && p.Foreground != nil && pid != 0 &&
+		p.Foreground.PID == pid && p.Foreground.Agent() == agent
+}
+
 // StatusRecord is one program status report (OSC 7501).
 type StatusRecord struct {
 	ID           string    `json:"id"`

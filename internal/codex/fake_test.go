@@ -114,7 +114,13 @@ func (d *fakeDaemon) serve(w http.ResponseWriter, r *http.Request) {
 				}
 				reply(map[string]any{"thread": map[string]any{"id": thread, "status": map[string]any{"type": st}}})
 			case "thread/turns/list":
-				turns := []any{map[string]any{"id": "old", "status": "completed"}}
+				// Every input so far, newest first, as one user message per turn.
+				var items []any
+				for i := len(d.inputs) - 1; i >= 0; i-- {
+					items = append(items, map[string]any{"type": "userMessage",
+						"content": []any{map[string]any{"type": "text", "text": d.inputs[i]}}})
+				}
+				turns := []any{map[string]any{"id": "old", "status": "completed", "items": items}}
 				if d.turn != "" {
 					turns = []any{map[string]any{"id": d.turn, "status": "inProgress"}, turns[0]}
 				}

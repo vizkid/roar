@@ -83,8 +83,9 @@ func (d *Deliverer) hold(c *store.Claim, reason string) (Outcome, error) {
 func (d *Deliverer) typeMessage(ctx context.Context, c *store.Claim, pid int) (Outcome, error) {
 	m := c.Message()
 	to := m.Envelope.To
-	err := c.Move(store.Submitting, d.Now(), func(r *store.Record) {
-		r.ForegroundPID = pid
+	now := d.Now()
+	err := c.Move(store.Submitting, now, func(r *store.Record) {
+		r.ForegroundPID, r.WrittenAt = pid, now
 		r.Attempts++
 	})
 	if err != nil {

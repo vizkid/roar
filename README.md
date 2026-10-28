@@ -21,13 +21,13 @@ Roar never wraps an agent. `roar setup` puts it in each agent's default config, 
 | Config root | Found as | What setup adds |
 | --- | --- | --- |
 | Claude | `~/.claude`, `~/.claude-*`, `$CLAUDE_CONFIG_DIR` | The `roar` skill, and a user-scope MCP server `roar` (`roar mcp`) |
-| Codex | `~/.codex`, `~/.codex-*`, `$CODEX_HOME` | The `roar` skill, and a `SessionStart` hook (`roar hook codex`) that records which thread each pane shows |
+| Codex | `~/.codex`, `~/.codex-*`, `$CODEX_HOME` | The `roar` skill, and a `SessionStart` hook (`roar hook codex`) that records which thread each pane shows, for a Codex that runs in its own pane process |
 
 Run it again after you move the binary. It changes only what differs.
 Two steps stay with you, because each one is a consent the agent asks for:
 
 1. Start Claude with `--dangerously-load-development-channels server:roar`, for example in the shell function or alias that already starts `claude`. Claude loads channels only from that flag.
-2. Run `/hooks` once in each Codex home and trust the Roar hook. Codex does not run a new hook until you do.
+2. Run `/hooks` once in each Codex home and trust the Roar hook. Codex does not run a new hook until you do. A Codex on the shared daemon runs hooks in the daemon, so there Roar instead learns each thread's pane from the first Roar message the thread receives. Until then, `roar` run by that Codex refuses with `unbound_codex_thread` rather than send under the wrong pane.
 
 Without them, messages still arrive by typing through Rex.
 

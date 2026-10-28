@@ -46,3 +46,19 @@ func TestCrashedCodexWriterSettlesToUnknown(t *testing.T) {
 		t.Fatalf("claude record %+v", m.Record)
 	}
 }
+
+func TestCodexBindingByThread(t *testing.T) {
+	st := newStore(t)
+	st.BindCodex("block:a", CodexBinding{Thread: "T1", Session: "session:s"})
+	st.BindCodex("block:b", CodexBinding{Thread: "T2", Session: "session:s"})
+	if block, b, ok := st.CodexThread("T2"); !ok || block != "block:b" || b.Session != "session:s" {
+		t.Fatalf("T2: %s %+v %v", block, b, ok)
+	}
+	st.BindCodex("block:b", CodexBinding{Thread: "T3"}) // /new in pane b
+	if _, _, ok := st.CodexThread("T2"); ok {
+		t.Fatal("a replaced binding still names its old thread")
+	}
+	if _, _, ok := st.CodexThread("T9"); ok {
+		t.Fatal("unknown thread found")
+	}
+}

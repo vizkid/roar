@@ -87,6 +87,15 @@ A recipient is one Rex block: `(server, session_id, block_id)`.
 `roar send` reads `REX_SESSION` and `REX_BLOCK` from its own environment and `rex whoami --json` for the host.
 Outside a Rex pane it refuses with `not_in_rex_pane`.
 
+A command that Codex runs is the exception. A daemon-backed Codex runs commands in its shared daemon, so they inherit the daemon's `REX_SESSION` and `REX_BLOCK`: the pane that started the daemon, often long closed. Codex does set `CODEX_THREAD_ID`. When it is set, Roar finds the pane from the thread, in this order:
+
+1. A live [Codex binding](#binding-1) whose thread is this one.
+2. Proof from the daemon: the newest message written into a Codex pane heads a user message in this thread's recent turns. Roar writes that header at the start of every delivery, so the thread is in that pane. Roar records the binding.
+3. The inherited pane, only when its foreground process is an ancestor of this command. This is an in-process Codex.
+
+Otherwise it refuses with `unbound_codex_thread`, and never sends as the inherited pane. A Codex thread that has never received a Roar message can therefore not send yet.
+Only the newest written message counts in step 2. After `/new` the pane shows another thread, and an older message would bind the thread it left.
+
 Every pane runs as the same user. This identity prevents mistakes. It is not authentication.
 
 ## The envelope
@@ -378,14 +387,17 @@ So Roar needs no proxy and no wrapper. It needs only to know which thread the pa
 
 ### Binding
 
-The `SessionStart` hook names the thread. Codex runs it with the TUI's environment, so it carries `REX_SESSION` and `REX_BLOCK`.
-It fires on `startup`, `resume`, `clear` (`/new` and `/clear`), `compact`, and `fork`. So the binding follows every thread change.
+Two sources write a binding:
+
+- The [sender identity](#sender-identity) proof, the first time a Codex thread runs `roar` after receiving a Roar message. This is the path for a daemon-backed Codex.
+- The `SessionStart` hook. It fires on `startup`, `resume`, `clear` (`/new` and `/clear`), `compact`, and `fork`. A daemon-backed Codex runs hooks in the daemon, with the daemon's environment, so the hook binds only when the pane's foreground process is its ancestor: an in-process Codex.
 
 `roar hook codex` reads `session_id` from the hook input and writes `codex/<block>.json` in the store:
 
 | Field | Value |
 | --- | --- |
 | `thread` | `session_id`, which is the thread ID |
+| `session` | The pane's Rex session |
 | `codex_home` | `$CODEX_HOME`, else `~/.codex` |
 | `pid` | The pane's foreground PID from Rex, which is the TUI |
 | `at` | Write time |
@@ -393,7 +405,8 @@ It fires on `startup`, `resume`, `clear` (`/new` and `/clear`), `compact`, and `
 - The hook prints nothing. Codex adds `SessionStart` output to the model's context, and every token there costs on each turn.
 - Outside a Rex pane, or on any error, it does nothing and exits 0. A hook must never block Codex.
 
-A binding is live while Rex reports the same foreground PID for the block. A pane whose TUI exited, or that runs a new Codex that has not run the hook yet, has no live binding.
+A binding is live while Rex reports the same foreground PID for the block, that process has not exited, and it runs Codex. A pane whose TUI exited, or that runs a new Codex not yet bound, has no live binding.
+After `/new` in a daemon-backed Codex the binding still names the old thread until the new thread runs `roar` after receiving a message. Native delivery goes to the old thread while it stays loaded.
 
 ### Delivery and receipt
 
@@ -556,12 +569,13 @@ These drive the tests. Each one is covered; the test names are listed after the 
 13. Attachments arrive with their message, on the same host or across hosts, and an oversized set is refused.
 14. Every rendered message carries one header line, and a sender cannot forge a second header. `roar send` prints the delivery outcome, waiting through a native adapter's delivery.
 15. `roar setup` installs the skill in every config root, rewrites a stale Roar-written copy, and leaves an operator's symlink or unmarked file untouched. It registers the MCP server and appends the hook group once each, keeps existing hook groups in order, and goes on past a failed root.
-19. `roar hook codex` writes the pane's binding and prints nothing. Outside a Rex pane it writes nothing.
+19. `roar hook codex` writes the pane's binding and prints nothing, only when the pane's foreground process is its ancestor. Outside a Rex pane, or with an inherited pane, it writes nothing.
 17. A turn on a Codex side thread does not mark the bound thread busy. A delivered message shows no earlier retry error.
 18. A bare window or pane label from any session resolves to its pane, and `session/window` and `window@session` resolve too. A label used in two sessions is refused as ambiguous.
 20. With no matching label, `codex@session` and `claude@session` name the pane running that agent, and `left@session`, `right@session`, `top@session` and the other position hints name panes by their place in the tab. A label wins over a hint. A hint that names several panes follows the usual rule: the only agent pane wins, else it is refused as ambiguous.
 21. A `host-label:` prefix that is this machine's own name, in any case, resolves locally.
 22. `peer` names the other pane in the sender's window, for `roar send` and `roar ready`. Among several, the only agent pane wins; a pane alone in its window has no peer.
+23. A command with `CODEX_THREAD_ID` is placed by its thread: a live binding, else proof from the newest message written into a Codex pane, else an inherited pane that is its ancestor. Otherwise it is refused with `unbound_codex_thread`.
 16. A real Claude and a real Codex that receive a request answer it with `roar send --reply`.
 
 | Criteria | Tests |
@@ -577,13 +591,14 @@ These drive the tests. Each one is covered; the test names are listed after the 
 | 13 | `TestSendWithAttachments`, `TestEnqueueCarriesAttachments`, `TestPutWithFilesRejectsMismatch` |
 | 14 | `TestHeaderCannotBeForged`, `TestSendInboxReadStatus`, `TestSettleWaitsForTheAdapter` |
 | 15 | `TestInstallWritesSkill`, `TestInstallRewritesStaleCopy`, `TestInstallLeavesOperatorCopy`, `TestFindRoots`, `TestSetupCodexHome`, `TestSetupClaudeRoot`, `TestSetupGoesOnPastAFailedRoot` |
-| 19 | `TestHookCodexBindsPane`, `TestHookCodexOutsidePane` |
+| 19 | `TestHookCodexBindsOwnPane`, `TestHookCodexIgnoresInheritedPane`, `TestHookCodexOutsidePane` |
 | 16 | Live run in Evidence (Codex shown; Claude awaits an operator-accepted channel prompt) |
 | 5, 6 live | `TestLiveCodexChannel` needs a Codex home with a trusted Roar hook. Idle and busy delivery were shown by hand (Evidence); `/new` awaits the trusted hook. |
 | 18 | `TestResolveWindowAndPaneLabels`, plus the live run in Evidence |
 | 20 | `TestResolveAgentAndPositionHints`, `TestPositions` |
 | 21 | `TestOwnHostPrefixIsLocal`, plus the live run in Evidence |
 | 22 | `TestPeer`, `TestSendToPeer`, plus the live run in Evidence |
+| 23 | `TestCodexThreadIdentity`, `TestDeliveredIDs`, `TestCodexBindingByThread`, plus the live run in Evidence |
 | 17 | `TestDeliveryClearsEarlierReason` (the side-thread case no longer applies: delivery reads the bound thread's own status) |
 
 ## Open questions
@@ -591,6 +606,7 @@ These drive the tests. Each one is covered; the test names are listed after the 
 | Question | Recommendation |
 | --- | --- |
 | Where Codex sends an approval request for an injected turn | The TUI shows it, as for any turn on its thread. Not yet seen live: the live turns needed no approval. |
+| How a daemon-backed Codex rebinds after `/new` before it receives a message | Until then native delivery goes to the old thread. A hook cannot help: it runs in the daemon. Rebinding needs a daemon signal that names the client of a thread. |
 | Whether Codex keeps hook trust after setup reformats `hooks.json` | Setup keeps every group and key in place but re-indents the file. Check `/hooks` after the first real run. |
 | What Claude does with an enqueued message it never absorbs (Esc, turn error) | Leave it `accepted` and show its age |
 | Program status kinds `question` and `auth` were not seen live | The proof treats every `blocked` as wait, which is safe |
@@ -644,6 +660,7 @@ Live probes on 2026-10-27 used Claude Code 2.1.311, Codex CLI 0.164.0, and two R
 | `roar setup` changes only what differs, and keeps an operator's hooks | Run twice against a copy of `~/.codex-personal/hooks.json` under a throwaway `HOME`: the second run printed `ok` for every root. The only change to the file was Roar's group, appended last. `claude mcp add-json` wrote the server to `~/.claude.json` for `~/.claude`, and to `<root>/.claude.json` for the others. |
 | Agent and position hints name panes in a real layout | Live, session `roar` with Claude left and Codex right, both panes labelled `shell`: `codex@roar` and `right@roar` named the Codex pane, `claude@roar` and `left@roar` the Claude pane, and `top@roar` was refused as ambiguous. `rex window ls --json` gives each tiled pane's `rect` as fractions of the window. |
 | This machine's own name works as a host prefix | Live on Stiletto (host name `Stiletto.local`, Rex label empty): `roar ready stiletto:claude@roar` gave `wait: busy` for the Claude pane and `STILETTO:codex@roar` gave `empty` for the Codex pane. `Baroni:nonexistent-xyz` still resolved on Baroni, and `nohost:codex@roar` was still refused. |
+| A daemon-backed Codex passes the daemon's pane to its commands | Live: the `~/.codex` daemon (PID 87299) carried `REX_BLOCK` of a closed session, so `roar send --reply` from the Codex pane in session `roar` failed with `no_such_message`, and its messages arrived from `?/7f826959`. The burns session saw the same. The thread's `thread/turns/list` items start with Roar's header. With the fix, `roar inbox` run with that environment and `CODEX_THREAD_ID` of the roar pane's thread listed that pane's inbox and recorded the binding (PID 7898); an unknown thread was refused with `unbound_codex_thread`. |
 | A new hook needs operator trust; a bypass is refused | `--dangerously-bypass-hook-trust` exists, but Roar never uses it, and an agent's attempt to was refused by its own safety check |
 
 ## Related documents

@@ -86,24 +86,23 @@ func cmdHook(ctx context.Context, env Env, args []string) error {
 	if session == "" || block == "" || json.NewDecoder(env.Stdin).Decode(&in) != nil || in.SessionID == "" {
 		return nil
 	}
-	home := env.Getenv("CODEX_HOME")
-	if home == "" {
-		home = filepath.Join(env.Getenv("HOME"), ".codex")
-	}
+	home := codexHome(env)
 	rc := env.Rex
 	if dir := env.Getenv("REX_BIN_DIR"); dir != "" {
 		rc.Bin = filepath.Join(dir, "rex")
 	}
 	ctx, cancel := context.WithTimeout(ctx, 4*time.Second) // Codex allows the hook 5 s
 	defer cancel()
+	// A daemon-backed Codex runs hooks in the daemon, whose REX_BLOCK names
+	// the pane that started it. Bind only a pane that really runs this hook.
 	p, err := rc.Process(ctx, session, block)
-	if err != nil || p.Foreground == nil {
+	if err != nil || p.Foreground == nil || !ownPane(ctx, rc, session, block) {
 		return nil
 	}
 	st, err := openStore(env)
 	if err != nil {
 		return nil
 	}
-	st.BindCodex(block, store.CodexBinding{Thread: in.SessionID, CodexHome: home, PID: p.Foreground.PID, At: env.Now()})
+	st.BindCodex(block, store.CodexBinding{Thread: in.SessionID, Session: session, CodexHome: home, PID: p.Foreground.PID, At: env.Now()})
 	return nil
 }
