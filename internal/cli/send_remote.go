@@ -13,7 +13,8 @@ import (
 )
 
 // splitHost separates a "host-label:" prefix that names a Rex host. Block
-// and session IDs also contain a colon, so only a known host label counts.
+// and session IDs also contain a colon, so only a known host label or this
+// machine's own name counts. A remote label wins over this machine's name.
 func splitHost(ctx context.Context, c rex.Client, target string) (host, rest string, err error) {
 	label, rest, ok := strings.Cut(target, ":")
 	if !ok || label == "block" || label == "session" {
@@ -26,15 +27,30 @@ func splitHost(ctx context.Context, c rex.Client, target string) (host, rest str
 			} `json:"host"`
 		} `json:"hosts"`
 	}
-	if err := c.JSON(ctx, &out, "hosts", "--json"); err != nil {
-		return "", target, nil // no host list: treat the target as local
-	}
-	for _, h := range out.Hosts {
-		if strings.EqualFold(h.Host.Label, label) {
-			return h.Host.Label, rest, nil
+	if err := c.JSON(ctx, &out, "hosts", "--json"); err == nil {
+		for _, h := range out.Hosts {
+			if strings.EqualFold(h.Host.Label, label) {
+				return h.Host.Label, rest, nil
+			}
 		}
 	}
+	// Rex gives this host an empty label, but other hosts know it by its
+	// machine name, so an address copied from their messages carries it.
+	if strings.EqualFold(label, localName()) {
+		return "", rest, nil
+	}
 	return "", target, nil
+}
+
+// localName is this machine's host name without its domain: "Stiletto" for
+// "Stiletto.local".
+func localName() string {
+	name, err := os.Hostname()
+	if err != nil {
+		return ""
+	}
+	name, _, _ = strings.Cut(name, ".")
+	return name
 }
 
 // remoteHost is the Host for a server label or endpoint.

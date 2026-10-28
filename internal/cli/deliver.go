@@ -25,11 +25,17 @@ func cmdReady(ctx context.Context, env Env, args []string) error {
 	if len(pos) != 1 {
 		return usageErr("roar ready <target>")
 	}
-	to, err := rex.Resolve(ctx, env.Rex, pos[0])
+	host, target, err := splitHost(ctx, env.Rex, pos[0])
 	if err != nil {
 		return err
 	}
-	r := ready.Probe(ctx, env.Rex, to.Session, to.Block, 0)
+	c := env.Rex
+	c.Server = host
+	to, err := rex.Resolve(ctx, c, target)
+	if err != nil {
+		return err
+	}
+	r := ready.Probe(ctx, c, to.Session, to.Block, 0)
 	if *asJSON {
 		if err := writeJSON(env, r); err != nil {
 			return err

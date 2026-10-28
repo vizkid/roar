@@ -128,6 +128,26 @@ func TestReplyAddressesOriginalSender(t *testing.T) {
 	}
 }
 
+// A reply copied from another host's message carries this host's name as a
+// prefix. Rex labels this host "", so the machine's own name must count.
+func TestOwnHostPrefixIsLocal(t *testing.T) {
+	h := newHarness(t)
+	a, b := h.pane("a"), h.pane("b")
+	name, _ := os.Hostname()
+	name, _, _ = strings.Cut(name, ".")
+	for _, prefix := range []string{name, strings.ToLower(name)} {
+		id := h.send(a, "send", prefix+":"+b.label, "hi")
+		st, _ := store.Open(h.home)
+		if m, err := st.Get(id); err != nil || m.Envelope.To.Block != b.block {
+			t.Fatalf("%s: delivered to %+v (%v)", prefix, m.Envelope.To, err)
+		}
+		// ready takes the same targets: a sleep pane is found, then refused.
+		if _, out, errs := h.run(a, "", "ready", prefix+":"+b.label); !strings.Contains(out, "wrong_program") {
+			t.Fatalf("%s: ready printed %q %q", prefix, out, errs)
+		}
+	}
+}
+
 func TestRefusals(t *testing.T) {
 	h := newHarness(t)
 	a := h.pane("a")

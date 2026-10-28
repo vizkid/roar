@@ -48,7 +48,7 @@ Implementation language: Go.
 | `roar status [id...]` | Shows the state of messages the caller sent, or of the given IDs. | 0 |
 | `roar withdraw <id>` | Expires the caller's own unread message. | 0, 2 |
 | `roar resolve <id> --read\|--requeue` | Settles an `unknown` message after the operator checked the conversation. | 0, 2 |
-| `roar ready <target>` | Prints the fallback readiness verdict for a pane. | 0 empty, 1 wait, 2 refuse |
+| `roar ready <target>` | Prints the fallback readiness verdict for a pane. It takes the same targets as `roar send`, host prefix included. | 0 empty, 1 wait, 2 refuse |
 | `roar deliver [target...] [--watch]` | Runs fallback delivery for queued messages whose recipients have no native adapter. `--watch` follows `rex events` and retries on status changes. | 0, 2 |
 | `roar enqueue --sha256 <digest>` | Plumbing for cross-host sends: reads a forwarded envelope from stdin, stores it, then runs one delivery pass. | 0 stored or duplicate, 2 refused, 6 digest mismatch |
 | `roar setup` | Adds Roar to every Claude and Codex config root on this host. See [Setup](#setup). Safe to run again. | 0, 2 |
@@ -66,6 +66,7 @@ A recipient is one Rex block: `(server, session_id, block_id)`.
 - Store the server as its `host_id` plus endpoint URL from `rex whoami --json`. Host labels are local nicknames and differ between hosts.
 - Store the server's `instance_id` too. A changed `instance_id` means the server restarted, and stored block IDs are invalid.
 - A target is a full block ID, `[host-label:]session-label[/pane]`, `[host-label:]pane@session-label`, or `[host-label:]name`. `pane@session` is the same as `session/pane`; it reads like the tab name people see. `roar send` resolves the target once and stores IDs.
+- A `host-label:` prefix names a host from `rex hosts`. Rex gives the local host an empty label, so this machine's own name (the host name without its domain, any case) also counts and means local. An address copied from another host's message then works when sent back from this host. A remote label wins over the machine's name.
 - A pane is a pane label, a window label, or the last six or more characters of a block ID. A pane label wins over a window label. A window label names every terminal pane in that window.
 - When no label matches, a pane can be a hint instead. A label always wins over a hint, so an operator can still name a pane `left` or `codex`.
 
@@ -558,6 +559,7 @@ These drive the tests. Each one is covered; the test names are listed after the 
 17. A turn on a Codex side thread does not mark the bound thread busy. A delivered message shows no earlier retry error.
 18. A bare window or pane label from any session resolves to its pane, and `session/window` and `window@session` resolve too. A label used in two sessions is refused as ambiguous.
 20. With no matching label, `codex@session` and `claude@session` name the pane running that agent, and `left@session`, `right@session`, `top@session` and the other position hints name panes by their place in the tab. A label wins over a hint. A hint that names several panes follows the usual rule: the only agent pane wins, else it is refused as ambiguous.
+21. A `host-label:` prefix that is this machine's own name, in any case, resolves locally.
 16. A real Claude and a real Codex that receive a request answer it with `roar send --reply`.
 
 | Criteria | Tests |
@@ -578,6 +580,7 @@ These drive the tests. Each one is covered; the test names are listed after the 
 | 5, 6 live | `TestLiveCodexChannel` needs a Codex home with a trusted Roar hook. Idle and busy delivery were shown by hand (Evidence); `/new` awaits the trusted hook. |
 | 18 | `TestResolveWindowAndPaneLabels`, plus the live run in Evidence |
 | 20 | `TestResolveAgentAndPositionHints`, `TestPositions` |
+| 21 | `TestOwnHostPrefixIsLocal`, plus the live run in Evidence |
 | 17 | `TestDeliveryClearsEarlierReason` (the side-thread case no longer applies: delivery reads the bound thread's own status) |
 
 ## Open questions
@@ -637,6 +640,7 @@ Live probes on 2026-10-27 used Claude Code 2.1.311, Codex CLI 0.164.0, and two R
 | `roar send` delivers to a plain `codex` through its daemon | Live: with the binding `roar hook codex` wrote for the pane, `roar send` printed `read` (`codex_turn_start`) and Codex answered `DAEMON OK`. A message sent 3 s into a `sleep 8` turn reached `read` as `codex_turn_steer`, `mid_turn`, and Codex took it into that turn. |
 | `roar setup` changes only what differs, and keeps an operator's hooks | Run twice against a copy of `~/.codex-personal/hooks.json` under a throwaway `HOME`: the second run printed `ok` for every root. The only change to the file was Roar's group, appended last. `claude mcp add-json` wrote the server to `~/.claude.json` for `~/.claude`, and to `<root>/.claude.json` for the others. |
 | Agent and position hints name panes in a real layout | Live, session `roar` with Claude left and Codex right, both panes labelled `shell`: `codex@roar` and `right@roar` named the Codex pane, `claude@roar` and `left@roar` the Claude pane, and `top@roar` was refused as ambiguous. `rex window ls --json` gives each tiled pane's `rect` as fractions of the window. |
+| This machine's own name works as a host prefix | Live on Stiletto (host name `Stiletto.local`, Rex label empty): `roar ready stiletto:claude@roar` gave `wait: busy` for the Claude pane and `STILETTO:codex@roar` gave `empty` for the Codex pane. `Baroni:nonexistent-xyz` still resolved on Baroni, and `nohost:codex@roar` was still refused. |
 | A new hook needs operator trust; a bypass is refused | `--dangerously-bypass-hook-trust` exists, but Roar never uses it, and an agent's attempt to was refused by its own safety check |
 
 ## Related documents

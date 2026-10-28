@@ -52,7 +52,7 @@ roar send --reply <id> "Done."
 The `roar` skill teaches the agent to answer messages and send its own.
 `roar send` prints `<id> <state> [reason]`, so neither you nor an agent needs a follow-up `roar status`.
 
-A target is a Rex session, tab (window) or pane label, `tab@session` (or `session/tab`), or a block ID. Put `host:` in front for another Rex host.
+A target is a Rex session, tab (window) or pane label, `tab@session` (or `session/tab`), or a block ID. Put `host:` in front for another Rex host, for example `baroni:claude@burns`. This machine's own name works too, so an address copied from another host's message can be sent back from here.
 Where no label matches, a hint names the pane: the agent it runs (`codex@roar`, `claude@roar`) or where it sits in its tab (`left`, `right`, `top`, `bottom`, `top-left`, and so on). A label always wins over a hint.
 
 | The recipient is | Delivery |
