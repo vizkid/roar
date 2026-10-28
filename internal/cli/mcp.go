@@ -2,34 +2,13 @@ package cli
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"syscall"
 	"time"
 
 	"github.com/vizkid/roar/internal/claude"
 )
-
-// cmdClaude replaces itself with Claude Code, loading Roar's channel.
-func cmdClaude(_ context.Context, env Env, args []string) error {
-	bin := env.Getenv("ROAR_CLAUDE_BIN")
-	if bin == "" {
-		var err error
-		if bin, err = exec.LookPath("claude"); err != nil {
-			return errors.New("no_claude: claude is not on PATH; set ROAR_CLAUDE_BIN")
-		}
-	}
-	self, err := os.Executable()
-	if err != nil {
-		return err
-	}
-	installSkill(env, "claude")
-	argv := append([]string{bin}, claude.LaunchArgs(self, args)...)
-	return syscall.Exec(bin, argv, os.Environ())
-}
 
 // cmdMCP is the adapter Claude starts as its MCP server. It never fails
 // loudly: without a Rex pane or the channel flag it serves MCP with no

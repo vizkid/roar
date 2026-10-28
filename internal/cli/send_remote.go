@@ -63,7 +63,8 @@ func sendRemote(ctx context.Context, env Env, e envelope.Envelope, files map[str
 	return remote.Result{}, lastErr
 }
 
-// cmdInstall copies this roar binary to a Rex host's ~/.local/bin.
+// cmdInstall copies this roar binary to a Rex host's ~/.local/bin, then
+// runs roar setup there.
 func cmdInstall(ctx context.Context, env Env, args []string) error {
 	if len(args) != 1 {
 		return usageErr("roar install <host-label>")
@@ -76,9 +77,14 @@ func cmdInstall(ctx context.Context, env Env, args []string) error {
 	if err != nil {
 		return err
 	}
-	if err := remoteHost(env, args[0]).Install(ctx, bin); err != nil {
+	h := remoteHost(env, args[0])
+	if err := h.Install(ctx, bin); err != nil {
 		return err
 	}
 	fmt.Fprintf(env.Stdout, "installed at %s on %s\n", remote.DefaultBin, args[0])
-	return nil
+	out, err := h.Setup(ctx)
+	if out != "" {
+		fmt.Fprintln(env.Stdout, out)
+	}
+	return err
 }

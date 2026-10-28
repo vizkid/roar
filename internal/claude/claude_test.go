@@ -31,23 +31,6 @@ func TestChannelGuard(t *testing.T) {
 	}
 }
 
-func TestLaunchArgs(t *testing.T) {
-	got := LaunchArgs("/bin/roar", []string{"--model", "haiku"})
-	if got[0] != "--mcp-config" || !strings.Contains(got[1], `"command":"/bin/roar"`) || got[2] != ChannelArg || got[3] != "--model" {
-		t.Fatalf("launch args %q", got)
-	}
-	again := LaunchArgs("/bin/roar", []string{ChannelArg})
-	n := 0
-	for _, a := range again {
-		if a == ChannelArg {
-			n++
-		}
-	}
-	if n != 1 {
-		t.Fatalf("channel flag added twice: %q", again)
-	}
-}
-
 func TestMetaValidation(t *testing.T) {
 	if err := ValidateMeta(map[string]string{"id": "rm-x", "sender": "a"}); err != nil {
 		t.Fatal(err)

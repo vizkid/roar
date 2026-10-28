@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/vizkid/roar/internal/envelope"
@@ -125,7 +126,8 @@ func pickBlock(ctx context.Context, c Client, session, pane string) (string, err
 }
 
 // named lists a session's terminal panes that pane names: by pane label or
-// block ID suffix first, else every pane in windows with that label.
+// block ID suffix first, then every pane in windows with that label, then
+// by hint: the agent a pane runs, or its place in its window.
 func named(ctx context.Context, c Client, session, pane string) ([]Block, error) {
 	terms, err := terminals(ctx, c, session)
 	if err != nil {
@@ -154,7 +156,32 @@ func named(ctx context.Context, c Client, session, pane string) ([]Block, error)
 			}
 		}
 	}
-	return hits, nil
+	if len(hits) > 0 {
+		return hits, nil
+	}
+	return hinted(ctx, c, session, terms, windows, pane), nil
+}
+
+// hinted lists the panes an agent name or a position word names.
+func hinted(ctx context.Context, c Client, session string, terms []Block, windows []Window, hint string) []Block {
+	var hits []Block
+	if hint == "claude" || hint == "codex" {
+		for _, b := range terms {
+			if p, err := c.Process(ctx, session, b.ID); err == nil && p.Foreground != nil && p.Foreground.Agent() == hint {
+				hits = append(hits, b)
+			}
+		}
+		return hits
+	}
+	for _, w := range windows {
+		placed := atPosition(w.Rects(), hint)
+		for _, b := range terms {
+			if slices.Contains(placed, b.ID) {
+				hits = append(hits, b)
+			}
+		}
+	}
+	return hits
 }
 
 func terminals(ctx context.Context, c Client, session string) ([]Block, error) {

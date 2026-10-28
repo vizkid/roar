@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -45,8 +46,11 @@ func (s *Store) Prune(now time.Time) error {
 	return nil
 }
 
-// SettleOrphans moves submitting messages whose typer died to unknown. The
-// pasted text may sit in the composer, so nothing may retry automatically.
+// SettleOrphans moves messages whose deliverer died mid-call to unknown:
+// submitting ones, whose pasted text may sit in the composer, and ones a
+// Codex sender wrote, whose turn may have run. Nothing may retry them
+// automatically. Claude's adapter keeps messages written while it waits for
+// receipt, so its writes stay.
 func (s *Store) SettleOrphans(now time.Time) (int, error) {
 	all, err := s.All()
 	if err != nil {
@@ -54,7 +58,8 @@ func (s *Store) SettleOrphans(now time.Time) (int, error) {
 	}
 	n := 0
 	for _, m := range all {
-		if m.Record.State != Submitting {
+		reason := orphanReason(m.Record)
+		if reason == "" {
 			continue
 		}
 		c, err := s.Claim(m.Envelope.ID)
@@ -64,8 +69,8 @@ func (s *Store) SettleOrphans(now time.Time) (int, error) {
 		if err != nil {
 			return n, err
 		}
-		if c.Message().Record.State == Submitting {
-			err = c.Move(Unknown, now, func(r *Record) { r.Reason = "interrupted_while_typing" })
+		if orphanReason(c.Message().Record) == reason {
+			err = c.Move(Unknown, now, func(r *Record) { r.Reason = reason })
 			if err == nil {
 				n++
 			}
@@ -76,4 +81,14 @@ func (s *Store) SettleOrphans(now time.Time) (int, error) {
 		}
 	}
 	return n, nil
+}
+
+func orphanReason(r Record) string {
+	switch {
+	case r.State == Submitting:
+		return "interrupted_while_typing"
+	case r.State == Written && strings.HasPrefix(r.Writer, "codex:"):
+		return "interrupted_while_writing"
+	}
+	return ""
 }

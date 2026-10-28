@@ -1,9 +1,9 @@
-// Package claude is Roar's native adapter for Claude Code: a launcher, an
-// MCP server that declares the channel capability, and transcript receipt.
+// Package claude is Roar's native adapter for Claude Code: an MCP server
+// that declares the channel capability once Claude's argv proves the channel
+// flag, and receipt from the transcript.
 package claude
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -15,23 +15,11 @@ import (
 const Server = "roar"
 
 // ChannelArg loads the Roar channel. The equals form keeps a list-valued
-// flag from swallowing the opening prompt.
+// flag from swallowing the opening prompt; a listed form such as
+// "--dangerously-load-development-channels server:penfold server:roar" also counts.
 const ChannelArg = "--dangerously-load-development-channels=server:" + Server
 
 const channelFlag = "--dangerously-load-development-channels"
-
-// LaunchArgs builds Claude's arguments: Roar's MCP server, the channel
-// flag (once), then the caller's arguments.
-func LaunchArgs(roarPath string, args []string) []string {
-	cfg, _ := json.Marshal(map[string]any{"mcpServers": map[string]any{
-		Server: map[string]any{"type": "stdio", "command": roarPath, "args": []string{"mcp"}},
-	}})
-	out := []string{"--mcp-config", string(cfg)}
-	if !channelEnabled(args) {
-		out = append(out, ChannelArg)
-	}
-	return append(out, args...)
-}
 
 // channelProof checks Claude's real argv. The adapter runs as Claude's MCP
 // child, so its parent is Claude; a self-update can restart Claude without

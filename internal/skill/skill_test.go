@@ -10,13 +10,11 @@ import (
 
 func TestInstallWritesSkill(t *testing.T) {
 	root := t.TempDir()
-	path, err := Install(root)
-	if err != nil {
-		t.Fatal(err)
+	wrote, err := Install(root)
+	if err != nil || !wrote {
+		t.Fatalf("wrote %v, err %v", wrote, err)
 	}
-	if want := filepath.Join(root, "skills", "roar", "SKILL.md"); path != want {
-		t.Fatalf("path %q, want %q", path, want)
-	}
+	path := filepath.Join(root, "skills", "roar", "SKILL.md")
 	b, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
@@ -30,8 +28,8 @@ func TestInstallWritesSkill(t *testing.T) {
 			t.Errorf("skill lacks %q", s)
 		}
 	}
-	if _, err := Install(root); err != nil {
-		t.Fatalf("second install: %v", err)
+	if wrote, err := Install(root); err != nil || wrote {
+		t.Fatalf("second install: wrote %v, err %v", wrote, err)
 	}
 }
 

@@ -12,9 +12,10 @@ import (
 	"github.com/vizkid/roar/internal/store"
 )
 
-// TestLiveClaudeChannel drives real Claude Code through `roar claude`. It
-// needs ROAR_LIVE=1 and ROAR_LIVE_DIR (a directory Claude already trusts),
-// and spends a few short model turns.
+// TestLiveClaudeChannel drives a plain Claude Code started the way `roar
+// setup` leaves it: the roar MCP server plus the channel flag. It needs
+// ROAR_LIVE=1 and ROAR_LIVE_DIR (a directory Claude already trusts), and
+// spends a few short model turns.
 func TestLiveClaudeChannel(t *testing.T) {
 	if os.Getenv("ROAR_LIVE") != "1" || os.Getenv("ROAR_LIVE_DIR") == "" {
 		t.Skip("set ROAR_LIVE=1 and ROAR_LIVE_DIR to run live agent tests")
@@ -28,11 +29,15 @@ func TestLiveClaudeChannel(t *testing.T) {
 	if b, err := exec.Command("go", "build", "-o", roarBin, "../../cmd/roar").CombinedOutput(); err != nil {
 		t.Fatalf("build: %v %s", err, b)
 	}
-	cmd := []string{"env", "-C", os.Getenv("ROAR_LIVE_DIR"), "ROAR_HOME=" + h.home, "ROAR_CLAUDE_BIN=" + claudeBin}
+	cmd := []string{"env", "-C", os.Getenv("ROAR_LIVE_DIR"), "ROAR_HOME=" + h.home}
 	if v := os.Getenv("CLAUDE_CONFIG_DIR"); v != "" {
 		cmd = append(cmd, "CLAUDE_CONFIG_DIR="+v)
 	}
-	cmd = append(cmd, roarBin, "claude", "--model", "haiku", "--strict-mcp-config",
+	// --strict-mcp-config with this test build stands in for the user-scope
+	// server `roar setup` registers.
+	mcp := `{"mcpServers":{"roar":{"type":"stdio","command":"` + roarBin + `","args":["mcp"]}}}`
+	cmd = append(cmd, claudeBin, "--mcp-config", mcp, "--dangerously-load-development-channels=server:roar",
+		"--model", "haiku", "--strict-mcp-config",
 		"--settings", `{"disableAllHooks":true}`, "--allowedTools", "Bash(sleep:*)")
 	label := rextest.Label("claude")
 	session, block := rextest.Session(t, h.rex, label, cmd...)

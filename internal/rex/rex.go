@@ -119,8 +119,9 @@ func (c Client) Blocks(ctx context.Context, session string) ([]Block, error) {
 // Window is one entry of `rex window ls`. Its label is the tab name people
 // see in Rex.
 type Window struct {
-	ID    string `json:"window_id"`
-	Label string `json:"label"`
+	ID     string  `json:"window_id"`
+	Label  string  `json:"label"`
+	Layers []layer `json:"layers"`
 }
 
 func (c Client) Windows(ctx context.Context, session string) ([]Window, error) {

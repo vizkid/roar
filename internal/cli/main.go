@@ -46,10 +46,10 @@ var commands = map[string]command{
 	"resolve":  cmdResolve,
 	"ready":    cmdReady,
 	"deliver":  cmdDeliver,
-	"claude":   cmdClaude,
 	"mcp":      cmdMCP,
-	"codex":    cmdCodex,
+	"hook":     cmdHook,
 	"enqueue":  cmdEnqueue,
+	"setup":    cmdSetup,
 	"install":  cmdInstall,
 }
 
@@ -62,12 +62,12 @@ const usage = `usage: roar <command> [args]
   withdraw <id>              expire your own queued message
   resolve <id> --read|--requeue   settle a message in state unknown
   ready <target>             is the pane's agent at rest with an empty composer? (exit 0 yes, 1 wait, 2 never)
-  deliver [target...] [--watch]   type held messages into panes that are ready
-  claude [args...]           install the roar skill, then run Claude Code with the Roar channel
-  codex [args...]            install the roar skill, then run Codex behind the Roar proxy
-  install <host-label>       copy this roar to ~/.local/bin on another Rex host
+  deliver [target...] [--watch]   deliver held messages to panes that are ready
+  setup                      add Roar to every Claude and Codex config root in $HOME
+  install <host-label>       copy this roar to ~/.local/bin on another Rex host, then run setup there
   enqueue --sha256 <digest>  receive a message from another host (Roar runs this itself)
   mcp                        the Claude adapter (Claude starts it; do not run it yourself)
+  hook codex                 the Codex SessionStart hook (Codex runs it; do not run it yourself)
 `
 
 // Main runs one command and returns its exit code.

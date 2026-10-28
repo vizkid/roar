@@ -1,6 +1,6 @@
 # Roar specification
 
-Owner: Viz. Updated: 2026-10-27. Formerly named Ping; renamed to Roar on 2026-10-27, because `ping` shadowed the system's network `ping`. Status: implemented on `main`; the spec itself is not yet ratified.
+Owner: Viz. Updated: 2026-10-28. Formerly named Ping; renamed to Roar on 2026-10-27, because `ping` shadowed the system's network `ping`. Status: implemented on `main`; the spec itself is not yet ratified.
 
 ## Problem and solution
 
@@ -23,8 +23,8 @@ Otherwise it holds the message.
 | Native delivery adapters for Claude Code and Codex | Task coordination and issue launching (deferred) |
 | Terminal-input fallback through Rex, with readiness proof | Credentials and accounts (separate tools) |
 | A durable per-host message store | Roles, delegation, broadcast |
-| Launch helpers that set up native adapters | Service installation; the operator decides where long-running commands run |
-| Reading agent turn state from Rex program status | Deriving agent state from terminal polling, screen scraping, hooks, or transcripts |
+| `roar setup`, which adds Roar to each agent's default config | Wrapping or launching agents; service installation |
+| Reading agent turn state from Rex program status | Deriving agent state from terminal polling, screen scraping, or hooks. A Codex hook only names the pane's thread. |
 
 Rex supplies identity. A pane is a Rex block on a Rex server. Roar adds no names of its own.
 
@@ -32,7 +32,8 @@ Rex supplies identity. A pane is a Rex block on a Rex server. Roar adds no names
 
 - **Commands, not a service.** Every command works on its own. There is no Roar daemon.
 - **The store is the interface.** Commands share state through files in one directory per host. File locks serialize changes.
-- **Long-lived only where the provider demands it.** The Claude adapter lives as long as Claude does. The Codex proxy lives as long as Codex does. `roar deliver --watch` is optional.
+- **No wrappers.** The operator starts `claude` and `codex` as usual. `roar setup` puts Roar in their default config, so every session gets it.
+- **Long-lived only where the provider demands it.** The Claude adapter lives as long as Claude does. Codex delivery runs inside the sending command. `roar deliver --watch` is optional.
 - **Plain output.** Text by default, `--json` for scripts. Exit codes carry the outcome.
 
 Implementation language: Go.
@@ -50,9 +51,10 @@ Implementation language: Go.
 | `roar ready <target>` | Prints the fallback readiness verdict for a pane. | 0 empty, 1 wait, 2 refuse |
 | `roar deliver [target...] [--watch]` | Runs fallback delivery for queued messages whose recipients have no native adapter. `--watch` follows `rex events` and retries on status changes. | 0, 2 |
 | `roar enqueue --sha256 <digest>` | Plumbing for cross-host sends: reads a forwarded envelope from stdin, stores it, then runs one delivery pass. | 0 stored or duplicate, 2 refused, 6 digest mismatch |
-| `roar claude [args...]` | Installs the [agent skill](#agent-skill), then runs Claude Code with the Roar channel loaded. | Claude's |
+| `roar setup` | Adds Roar to every Claude and Codex config root on this host. See [Setup](#setup). Safe to run again. | 0, 2 |
+| `roar install <host>` | Copies this binary to another Rex host's `~/.local/bin`, then runs `roar setup` there. | 0, 2 |
 | `roar mcp` | Claude adapter. Claude starts it; operators never run it. | |
-| `roar codex [args...]` | Installs the [agent skill](#agent-skill), then runs Codex behind the Roar proxy. | Codex's |
+| `roar hook codex` | Codex `SessionStart` hook. Records which thread the pane shows. Codex runs it; operators never do. | always 0 |
 
 Exit code 2 always comes with one line on stderr that names the reason, for example `ambiguous_target`, `no_roar_on_host`, or `limit_exceeded`.
 
@@ -65,6 +67,16 @@ A recipient is one Rex block: `(server, session_id, block_id)`.
 - Store the server's `instance_id` too. A changed `instance_id` means the server restarted, and stored block IDs are invalid.
 - A target is a full block ID, `[host-label:]session-label[/pane]`, `[host-label:]pane@session-label`, or `[host-label:]name`. `pane@session` is the same as `session/pane`; it reads like the tab name people see. `roar send` resolves the target once and stores IDs.
 - A pane is a pane label, a window label, or the last six or more characters of a block ID. A pane label wins over a window label. A window label names every terminal pane in that window.
+- When no label matches, a pane can be a hint instead. A label always wins over a hint, so an operator can still name a pane `left` or `codex`.
+
+| Hint | Names |
+| --- | --- |
+| `claude`, `codex` | The panes whose foreground program is that agent, by the same test the readiness proof uses |
+| `left`, `right`, `top`, `bottom` | The panes on that edge of their window's tiled layout |
+| `top-left`, `top-right`, `bottom-left`, `bottom-right` | The panes on both edges |
+
+  Positions come from the layout rectangles `rex window ls` reports, so they match what the operator sees. In two side-by-side panes, `left` and `right` each name one pane and `top` names both. A hint applies in every window of the session; a session with several tabs can make it ambiguous.
+  Example: a session `roar` with Claude on the left and Codex on the right. `codex@roar` and `right@roar` both name the Codex pane.
 - A name that matches no session label is looked up as a window or pane label in every session. People see window labels as Rex tab names, not session labels, so they and their agents address by them. The name must occur in one session only; otherwise the send is refused with `ambiguous_target` and lists each `name@session`.
 - When a target names several panes, the only agent pane wins, by foreground process. Otherwise the send is refused with `ambiguous_target` and the candidates are listed.
 
@@ -183,6 +195,7 @@ Status alone cannot prove an empty composer. A typed draft leaves the status `id
 | Recipient state | Path |
 | --- | --- |
 | A native adapter holds `adapters/<block>.lock` | Native. Only the adapter delivers. |
+| The pane has a live [Codex binding](#binding-1) and its thread is loaded on the Codex daemon | Native, by whichever command holds the message lock |
 | No native adapter, and the readiness proof says empty | Fallback, by whichever `roar send`, `roar enqueue`, or `roar deliver` holds the message lock |
 | No native adapter, and the proof says busy, draft, modal, or unknown | Hold. `roar deliver --watch` or the next send retries. |
 | The pane runs something that is not an agent, such as a shell | Hold with `wrong_program`. Roar never types into it; an agent may start there later, and a person can still read the message with `roar inbox`. |
@@ -245,6 +258,35 @@ An adapter that starts takes `adapters/<block>.lock`, then settles messages left
 
 A `submitting` message whose lock is free belongs to a deliverer that died. Any command that finds one sets it to `unknown`.
 
+## Setup
+
+**Roar lives in the agents' default config, not in a wrapper.** The operator runs `claude` and `codex` the usual way, through whatever launcher they already use.
+
+`roar setup` finds config roots in the home directory and changes each one:
+
+| Root | Found as | Changes |
+| --- | --- | --- |
+| Claude | `~/.claude` if it exists, `$CLAUDE_CONFIG_DIR`, and every `~/.claude-*` directory that holds `.claude.json` | The skill. A user-scope MCP server `roar` that runs `<roar> mcp`, added with `claude mcp add-json --scope user`. |
+| Codex | `~/.codex` if it exists, `$CODEX_HOME`, and every `~/.codex-*` directory that holds `config.toml` | The skill. One `SessionStart` group in `hooks.json` that runs `<roar> hook codex`. |
+
+- `<roar>` is the absolute path of the running binary, so agents need no `PATH` entry for it.
+- Setup reads the current config first and changes only what differs. A second run prints `ok` for each root.
+- It appends its hook group after the existing groups and never reorders groups or keys. Codex keys hook trust by position, so earlier trust stays valid. A moved binary replaces Roar's own group in place.
+- It runs the `claude` binary from `PATH`, else `~/.local/bin/claude`, never a shell function that wraps it.
+- For `~/.claude`, setup runs `claude mcp` without `CLAUDE_CONFIG_DIR`, so the server lands in `~/.claude.json`. For any other root it sets `CLAUDE_CONFIG_DIR`.
+- A root that fails prints one line on stderr. Setup continues with the next root and exits 2 at the end.
+
+Two steps stay with the operator, because each one is a consent the provider asks for:
+
+| Step | Why Roar cannot do it |
+| --- | --- |
+| Start Claude with `--dangerously-load-development-channels server:roar`, for example in the shell function that already starts `claude` | Claude loads channels only from the launch flag. No setting turns one on. |
+| Run `/hooks` once in each Codex home and trust the Roar hook | Codex trust-gates new hooks. Writing the trust entry would bypass that gate. |
+
+Without either step, the pane still gets messages through [fallback](#fallback-through-rex).
+
+`roar install <host>` copies the binary to another Rex host, then runs `roar setup` there.
+
 ## Agent skill
 
 **An agent learns Roar from a skill, not from adapter instructions.** Claude Code and Codex list every installed skill's name and description in context, and load the body when the description matches.
@@ -258,14 +300,7 @@ The skill is one `SKILL.md`, embedded in the binary. Both tools read the same fo
 
 ### Installation
 
-`roar claude` and `roar codex` install the skill before they start the agent, in the config root that launch uses:
-
-| Launch | Skill path |
-| --- | --- |
-| `roar claude` | `$CLAUDE_CONFIG_DIR/skills/roar/SKILL.md`, else `~/.claude/skills/roar/SKILL.md` |
-| `roar codex` | `$CODEX_HOME/skills/roar/SKILL.md`, else `~/.codex/skills/roar/SKILL.md` |
-
-Installing at launch, not at `roar install`, puts the skill in the config root the agent really reads. Rex runs pane commands in its server's login environment, so the caller's `CLAUDE_CONFIG_DIR` or `CODEX_HOME` can differ from the pane's. It also covers a remote host on the first launch there, with no extra step.
+[`roar setup`](#setup) writes the skill to `<root>/skills/roar/SKILL.md` in every config root it finds.
 
 | Existing `skills/roar` | Action |
 | --- | --- |
@@ -273,25 +308,16 @@ Installing at launch, not at `roar install`, puts the skill in the config root t
 | A `SKILL.md` Roar wrote (frontmatter `metadata.generated-by: roar`) | Rewrite it when the content differs |
 | A symlink, or a `SKILL.md` without the marker | Leave it. The operator manages it. |
 
-A failed install prints one line on stderr and never blocks the launch.
-
 **Keep the skill small.** An agent loads it for every message it answers, so every line costs on each reply. It stays near 300 tokens: the header fields, four command forms, and what `roar send` prints. `roar send` reports the delivery outcome itself, so the skill tells the agent not to follow up with `roar status`.
 
-Plain `claude` or `codex` sees the skill too once any `roar` launch has installed it in that config root.
 
 ## Claude adapter
 
 ### Launch
 
-`roar claude [args...]` runs the real Claude binary with:
-
-- `--mcp-config` naming a server `roar` that runs `roar mcp`;
-- `--dangerously-load-development-channels=server:roar` in equals form, so a list-valued flag cannot consume the prompt.
-
-Claude starts MCP servers only after the operator accepts the development-channel consent dialog.
-Roar does not answer that dialog. The operator accepts it once per launch.
-
-Claude's startup banner can say `server:roar · no MCP server configured with that name` while delivery works. Roar never reads that banner.
+[`roar setup`](#setup) registers `roar mcp` as a user-scope MCP server. Claude starts it in every session.
+The channel loads only when Claude starts with `--dangerously-load-development-channels server:roar`. Claude accepts several servers in that list, for example `server:penfold server:roar`.
+Claude starts MCP servers only after the operator accepts the development-channel consent dialog. Roar does not answer that dialog.
 
 ### Binding
 
@@ -342,52 +368,50 @@ The adapter's MCP `instructions` say one thing: messages arrive as `roar` channe
 
 ## Codex adapter
 
-### Launch
+### Why the daemon
 
-`roar codex [args...]`:
-
-1. Creates a private directory with mode 0700 under a short base path, because macOS limits Unix socket paths to 104 bytes.
-2. Starts `codex app-server --listen unix://<dir>/server.sock`.
-3. Starts the proxy on `<dir>/proxy.sock` and takes `adapters/<block>.lock`.
-4. Runs `codex --remote unix://<dir>/proxy.sock [args...]` in the pane, and stops the App Server and proxy when it exits.
-
-Roar never listens on a TCP port for Codex. A loopback WebSocket without auth lets any local process drive the agent.
-
-### Why a proxy
-
-A second App Server client can start turns that render in the TUI. But it cannot tell which thread the TUI shows.
-After `/new` the old thread stays loaded. A `turn/start` to the old thread succeeds and the model answers, yet the TUI shows nothing.
-The proxy sees the TUI's own `thread/start`, `thread/resume`, and `thread/fork` responses, so it always knows the current thread.
+Codex runs its TUI as a client of a shared App Server daemon per Codex home. The daemon serves `<codex home>/app-server-control/app-server-control.sock`.
+Any process of the same user can connect to that socket. A `turn/start` or `turn/steer` from that second client renders in the TUI and the model answers it.
+So Roar needs no proxy and no wrapper. It needs only to know which thread the pane shows.
 
 ### Binding
 
-- The bound connection is the first `codex-tui` connection whose own durable, top-level thread call succeeds.
-- Later thread calls on that connection rebind the thread. Ephemeral threads and sub-agent threads never bind.
-- While any TUI thread call is outstanding, delivery waits.
-- The active turn comes from `turn/started` and `turn/completed`, from an `inProgress` turn in a thread response, and from forwarded `turn/start` results, which arrive first.
-- Only a `turn/start` for the bound thread sets the active turn. Codex starts turns on side threads over the same connection, for example to name a thread. Such a turn's `turn/completed` arrives on the side thread, so it would leave the bound thread falsely busy, and every later message would be a rejected steer.
-- `ROAR_CODEX_TRACE=<file>` makes `roar codex` log each thread and turn frame the proxy observes, with the bound thread and turn. It is for diagnosing binding.
-- Each delivery binds to the connection and thread captured at bind time. If either changed, the delivery is refused and the message stays `queued`.
+The `SessionStart` hook names the thread. Codex runs it with the TUI's environment, so it carries `REX_SESSION` and `REX_BLOCK`.
+It fires on `startup`, `resume`, `clear` (`/new` and `/clear`), `compact`, and `fork`. So the binding follows every thread change.
+
+`roar hook codex` reads `session_id` from the hook input and writes `codex/<block>.json` in the store:
+
+| Field | Value |
+| --- | --- |
+| `thread` | `session_id`, which is the thread ID |
+| `codex_home` | `$CODEX_HOME`, else `~/.codex` |
+| `pid` | The pane's foreground PID from Rex, which is the TUI |
+| `at` | Write time |
+
+- The hook prints nothing. Codex adds `SessionStart` output to the model's context, and every token there costs on each turn.
+- Outside a Rex pane, or on any error, it does nothing and exits 0. A hook must never block Codex.
+
+A binding is live while Rex reports the same foreground PID for the block. A pane whose TUI exited, or that runs a new Codex that has not run the hook yet, has no live binding.
 
 ### Delivery and receipt
 
-| Thread state | Call | Success means |
+Codex delivery runs in whichever command holds the message lock: `roar send`, `roar enqueue`, or `roar deliver`.
+
+1. Without a live binding, skip to the fallback.
+2. Connect to the binding's daemon socket and read the thread. If the socket is missing or the thread is `notLoaded` or `systemError`, skip to the fallback. Nothing was sent.
+3. Move the message to `written` with writer `codex:<pid>:<start>`.
+4. Send it:
+
+| Thread status | Call | Success means |
 | --- | --- | --- |
-| Idle | `turn/start {threadId, input}` | `read`, boundary `turn` |
-| Busy | `turn/steer {threadId, input, expectedTurnId}` | `read`, boundary `mid_turn` |
+| `idle` | `turn/start {threadId, input}` | `read`, boundary `turn`, proof `codex_turn_start` |
+| `active` | `turn/steer {threadId, input, expectedTurnId}`, with the newest `inProgress` turn from `thread/turns/list` | `read`, boundary `mid_turn`, proof `codex_turn_steer` |
 
-- The proxy injects calls on the TUI's own upstream connection with a reserved ID prefix. It hides those responses from the TUI, and refuses a TUI frame that uses the prefix.
-- An RPC error means not delivered. The message returns to `queued` with hold reason `codex_rejected`. A stale steer returns `-32600`; the proxy then forgets that turn, so the next attempt starts a turn.
-- With no bound thread, or while a TUI thread call is outstanding, the message returns to `queued` with hold reason `codex_not_ready`. Nothing was sent.
-- A disconnect or a 15-second timeout after the write is `unknown`. A live test showed the turn still ran after the client disconnected.
-- The adapter delivers queued messages oldest first. A message that arrives while a turn runs steers that turn.
-- A message left `written` by an earlier `roar codex` process becomes `unknown` with reason `adapter_restarted`, never replayed.
-
-### Process lifetime
-
-The App Server runs in its own process group, so Ctrl-C in the pane reaches only the TUI. `roar codex` ignores SIGINT and SIGQUIT while the TUI runs, like a shell does.
-A pane hangup or kill does not reach that group either. So `roar codex` stops the App Server on SIGHUP and SIGTERM.
-Nothing can clean up after SIGKILL. Each launch writes `<dir>/owner` with its own PID and the server's process group. The next `roar codex` start stops servers whose owner is dead, and removes their directories. It signals a group only when the process command still names that directory's socket, because process IDs are reused.
+- `active` includes `waitingOnApproval` and `waitingOnUserInput`. The steer joins the turn and the model sees it when the turn goes on.
+- A turn can end between the read and the steer. Codex then rejects the steer with `-32600`. Roar reads the thread once more and sends again.
+- Any other RPC error means not delivered. The message returns to `queued` with hold reason `codex_rejected` and the error as its reason.
+- A disconnect or a 15-second timeout after the write is `unknown`. A live test showed a turn still ran after its client disconnected.
+- A message left `written` by a `codex:` writer whose claim is free became `unknown` with reason `interrupted_while_writing`. It is never replayed.
 
 ## Fallback through Rex
 
@@ -487,9 +511,9 @@ Fallback typing always runs on the recipient's host, against its local Rex serve
 **Claude to idle Codex, same host.**
 The sender runs `roar send other-session "Tests pass on main."`.
 `roar send` resolves the label to one block and stores the message as `queued`.
-The recipient's Codex proxy holds the adapter lock, so `roar send` leaves delivery to it and exits 0.
-The proxy sees the new directory, finds an idle bound thread, and calls `turn/start`. The call succeeds.
-The message becomes `read` with proof `codex_turn_start`.
+The recipient pane's binding names its thread, and Rex reports the same TUI PID, so the binding is live.
+`roar send` connects to that Codex home's daemon, reads the thread as `idle`, and calls `turn/start`. The call succeeds.
+The message becomes `read` with proof `codex_turn_start`, and `roar send` prints `<id> read`.
 
 **Request to a busy Claude.**
 The Claude adapter sees a new `request`. Rex reports the agent `working`, so the adapter holds it.
@@ -497,13 +521,13 @@ When Rex emits `program_status_changed` to `done`, the adapter writes the notifi
 The transcript shows a `user` record with the message ID. The message becomes `read`, boundary `turn`.
 
 **Fallback into a pane with a draft.**
-The recipient runs plain Claude, so no adapter lock is held.
+The recipient's Claude started without the channel flag, so no adapter lock is held.
 `roar send` runs the proof: status `idle`, the marker row, the cursor at column 19. The verdict is draft, wait. It exits 0 with the message held.
 `roar deliver --watch` runs in a pane on that host. The operator submits the draft. Status goes `working`, then `done`.
 On that event the watcher's proof finds an empty composer. It pastes, probes again, presses Enter, and sees `working`. The message becomes `submitted`.
 
 **Native attempt with an unknown outcome.**
-The Codex proxy writes `turn/start`, then the App Server connection drops before the result.
+`roar send` writes `turn/start` to the Codex daemon, then the connection drops before the result.
 The message becomes `unknown`. No fallback runs, even though the pane later looks empty.
 `roar status` lists it. The operator checks the conversation and runs `roar resolve <id> --read` or `--requeue`.
 
@@ -519,9 +543,9 @@ These drive the tests. Each one is covered; the test names are listed after the 
 2. A meta value that is not a string is refused before writing.
 3. `roar mcp` declares no channel and takes no adapter lock when its parent lacks the exact flag.
 4. After `/clear`, Claude receipt still matches in the new transcript.
-5. A native send to idle Codex reaches `read` through `turn/start`. One sent while busy uses `turn/steer` with the current turn ID.
+5. A native send to an idle plain `codex` reaches `read` through `turn/start`. One sent while busy uses `turn/steer` with the newest in-progress turn. A steer rejected because the turn ended is sent once more.
 6. After `/new` in Codex, a message goes to the new thread, never the old one.
-7. A Codex disconnect after the write leaves the message `unknown`, and no fallback runs.
+7. A Codex disconnect after the write leaves the message `unknown`, and no fallback runs. A binding whose PID is not the pane's foreground PID, or whose thread is not loaded, sends nothing and falls back.
 8. `roar ready` returns the right verdict for each state: empty, draft, draft with cursor home, working, permission prompt, trust dialog, shell, killed agent with a stale status record, exited pane, closed block.
 9. Fallback into an empty Claude or Codex composer reaches `submitted`. A changed proof between paste and Enter leaves `unknown` and sends no Enter.
 10. Killing any command or adapter at each state change recovers to the documented state with no duplicate delivery.
@@ -529,41 +553,46 @@ These drive the tests. Each one is covered; the test names are listed after the 
 12. A cross-host send dedupes on retry with the same key, and opens no window on either host.
 13. Attachments arrive with their message, on the same host or across hosts, and an oversized set is refused.
 14. Every rendered message carries one header line, and a sender cannot forge a second header. `roar send` prints the delivery outcome, waiting through a native adapter's delivery.
-15. A launch installs the skill in its config root, rewrites a stale Roar-written copy, and leaves an operator's symlink or unmarked file untouched. A failed install does not block the launch.
+15. `roar setup` installs the skill in every config root, rewrites a stale Roar-written copy, and leaves an operator's symlink or unmarked file untouched. It registers the MCP server and appends the hook group once each, keeps existing hook groups in order, and goes on past a failed root.
+19. `roar hook codex` writes the pane's binding and prints nothing. Outside a Rex pane it writes nothing.
 17. A turn on a Codex side thread does not mark the bound thread busy. A delivered message shows no earlier retry error.
 18. A bare window or pane label from any session resolves to its pane, and `session/window` and `window@session` resolve too. A label used in two sessions is refused as ambiguous.
+20. With no matching label, `codex@session` and `claude@session` name the pane running that agent, and `left@session`, `right@session`, `top@session` and the other position hints name panes by their place in the tab. A label wins over a hint. A hint that names several panes follows the usual rule: the only agent pane wins, else it is refused as ambiguous.
 16. A real Claude and a real Codex that receive a request answer it with `roar send --reply`.
 
 | Criteria | Tests |
 | --- | --- |
 | 1, 4 | `TestLiveClaudeChannel`; `TestDeliverAcceptReceive`, `TestMidTurnReceipt` |
 | 2, 3 | `TestMetaValidation`, `TestGuardRefusesWithoutFlag` |
-| 5, 6, 7 | `TestLiveCodexChannel`; `TestBusyThreadIsSteeredAndStaleSteerRetries`, `TestNewThreadRebinds`, `TestDisconnectAfterWriteIsUnknown`, `TestAdapterLeavesUnknownAfterDisconnect` |
+| 5, 6, 7 | `TestLiveCodexChannel`; `TestIdleThreadStartsTurn`, `TestBusyThreadIsSteered`, `TestStaleSteerIsSentAgain`, `TestDisconnectAfterWriteIsUnknown`, `TestRejectedCallHolds`, `TestStaleBindingFallsBack`, `TestUnloadedThreadFallsBack` |
 | 8 | `TestComposerStates`, `TestProcessGates`, `TestStatusGates`, `TestScreenGates`, `TestReadyExitCodes` |
 | 9 | `TestSubmitsIntoEmptyComposer`, `TestChangeBetweenPasteAndEnterLeavesUnknown`, `TestLiveClaudeFallback`, `TestLiveCodexFallback` |
-| 10 | `TestCrashedSubmitterSettlesToUnknown`, `TestRecoveryAfterWriterChange`, `TestAdapterSettlesAPreviousWritersMessageAsUnknown` |
+| 10 | `TestCrashedSubmitterSettlesToUnknown`, `TestRecoveryAfterWriterChange`, `TestCrashedCodexWriterSettlesToUnknown` |
 | 11 | `TestRacingProcessesClaimOnce`, `TestRacingDeliverersSubmitOnce` |
 | 12 | `TestEnqueueStoresAndDedupes`, `TestRunOpensNoWindow`, plus the live cross-host run in Evidence |
 | 13 | `TestSendWithAttachments`, `TestEnqueueCarriesAttachments`, `TestPutWithFilesRejectsMismatch` |
 | 14 | `TestHeaderCannotBeForged`, `TestSendInboxReadStatus`, `TestSettleWaitsForTheAdapter` |
-| 15 | `TestInstallWritesSkill`, `TestInstallRewritesStaleCopy`, `TestInstallLeavesOperatorCopy`, `TestLaunchSkillRoot` |
+| 15 | `TestInstallWritesSkill`, `TestInstallRewritesStaleCopy`, `TestInstallLeavesOperatorCopy`, `TestFindRoots`, `TestSetupCodexHome`, `TestSetupClaudeRoot`, `TestSetupGoesOnPastAFailedRoot` |
+| 19 | `TestHookCodexBindsPane`, `TestHookCodexOutsidePane` |
 | 16 | Live run in Evidence (Codex shown; Claude awaits an operator-accepted channel prompt) |
+| 5, 6 live | `TestLiveCodexChannel` needs a Codex home with a trusted Roar hook. Idle and busy delivery were shown by hand (Evidence); `/new` awaits the trusted hook. |
 | 18 | `TestResolveWindowAndPaneLabels`, plus the live run in Evidence |
-| 17 | `TestSideThreadTurnDoesNotBusyTheBoundThread`, `TestDeliveryClearsEarlierReason`, plus the live trace in Evidence |
+| 20 | `TestResolveAgentAndPositionHints`, `TestPositions` |
+| 17 | `TestDeliveryClearsEarlierReason` (the side-thread case no longer applies: delivery reads the bound thread's own status) |
 
 ## Open questions
 
 | Question | Recommendation |
 | --- | --- |
-| Where Codex sends an approval request for an injected turn | Test before calling the Codex adapter done |
-| Whether a Codex picker connection sends thread calls that look like a view change | Test; until then only the first bound connection may rebind |
+| Where Codex sends an approval request for an injected turn | The TUI shows it, as for any turn on its thread. Not yet seen live: the live turns needed no approval. |
+| Whether Codex keeps hook trust after setup reformats `hooks.json` | Setup keeps every group and key in place but re-indents the file. Check `/hooks` after the first real run. |
 | What Claude does with an enqueued message it never absorbs (Esc, turn error) | Leave it `accepted` and show its age |
 | Program status kinds `question` and `auth` were not seen live | The proof treats every `blocked` as wait, which is safe |
 | Attachments count toward no host-wide limit | Only the 16 MiB per-message cap applies. Add a host cap if large unread attachments pile up. |
 
 ## Evidence
 
-Live probes on 2026-10-27 used Claude Code 2.1.311, Codex CLI 0.164.0, and two Rex servers (0.0.1793047680 and 0.0.1792787366).
+Live probes on 2026-10-27 used Claude Code 2.1.311, Codex CLI 0.164.0, and two Rex servers (0.0.1793047680 and 0.0.1792787366). Probes on 2026-10-28 used Claude Code 2.1.312 and Codex CLI 0.164.0 with daemon 0.165.0. Rows that name `roar claude` or `roar codex` describe the former wrappers.
 
 | Finding | How it was shown |
 | --- | --- |
@@ -590,7 +619,6 @@ Live probes on 2026-10-27 used Claude Code 2.1.311, Codex CLI 0.164.0, and two R
 | Fallback delivers into real Claude and Codex, and a later draft holds the next message | Live test: both agents answered the typed message |
 | `roar claude` delivers natively: idle as `turn`, during a tool call as `mid_turn`, a request held while working, receipt after `/clear` | Live test against Claude Code 2.1.311 |
 | `roar codex` delivers natively: idle as `turn/start`, while working as `turn/steer`, after `/new` into the thread the TUI shows | Live test against Codex 0.164.0 |
-| Killing the pane left the App Server running until `roar codex` handled SIGHUP | Live: an orphaned `codex app-server` after `rex kill`; none after the fix |
 | Cross-host send, remote status, a reply back, and fallback into real Claude on the other host | Live: send 1.9 s (held as `wrong_program` in a shell pane), status 0.6 s, the reply landed in the sender's inbox, fallback `submitted` in 1.7 s and Claude answered |
 | `roar install` copies a 9.9 MB binary across hosts | Live: 49 s |
 | A detached block's PATH lacks `~/.local/bin` | Live: it held only the Rex server's directory and the system directories |
@@ -602,6 +630,14 @@ Live probes on 2026-10-27 used Claude Code 2.1.311, Codex CLI 0.164.0, and two R
 | Agents address panes by the Rex tab name | Live: Codex ran `roar send --request build ...` for a window labelled `build` in session `hello-claude` and got `no_such_target`. After the fix, `roar send build` reached `read` in that Claude. |
 | An extra `roar status` call costs a whole model call | Live: Claude sent with `roar send`, then ran `roar status`; the second call re-read about 97k tokens of cached context |
 | A launch installs the skill in the pane's config root, not the caller's | Live: the Rex pane had no `CLAUDE_CONFIG_DIR` or `CODEX_HOME`, so the skills landed in `~/.claude/skills/roar` and `~/.codex/skills/roar`, the roots those agents read |
+| A plain `codex` TUI is a client of the shared daemon, and a second client's `turn/start` renders in it | Live: `thread/loaded/list` on `~/.codex-personal/app-server-control/app-server-control.sock` listed the pane's thread. `turn/start` showed the prompt in the pane, and Codex answered `probe ok`. `thread/status/changed` reported `active`, then `idle`. |
+| A second client cannot `thread/resume` a thread the TUI holds | Live: `-32600 no rollout found` for a new thread with no turns. Delivery does not need it. |
+| Claude loads a channel only from the launch flag | Claude Code 2.1.312 skips a channel server with `server <name> not in --channels list for this session`. `channelsEnabled` and `allowedChannelPlugins` are managed policy, not a way to turn a channel on. |
+| Codex `SessionStart` fires on `startup`, `resume`, `clear`, `compact`, and `fork` | The hook input schema in the Codex 0.165.0 binary |
+| `roar send` delivers to a plain `codex` through its daemon | Live: with the binding `roar hook codex` wrote for the pane, `roar send` printed `read` (`codex_turn_start`) and Codex answered `DAEMON OK`. A message sent 3 s into a `sleep 8` turn reached `read` as `codex_turn_steer`, `mid_turn`, and Codex took it into that turn. |
+| `roar setup` changes only what differs, and keeps an operator's hooks | Run twice against a copy of `~/.codex-personal/hooks.json` under a throwaway `HOME`: the second run printed `ok` for every root. The only change to the file was Roar's group, appended last. `claude mcp add-json` wrote the server to `~/.claude.json` for `~/.claude`, and to `<root>/.claude.json` for the others. |
+| Agent and position hints name panes in a real layout | Live, session `roar` with Claude left and Codex right, both panes labelled `shell`: `codex@roar` and `right@roar` named the Codex pane, `claude@roar` and `left@roar` the Claude pane, and `top@roar` was refused as ambiguous. `rex window ls --json` gives each tiled pane's `rect` as fractions of the window. |
+| A new hook needs operator trust; a bypass is refused | `--dangerously-bypass-hook-trust` exists, but Roar never uses it, and an agent's attempt to was refused by its own safety check |
 
 ## Related documents
 

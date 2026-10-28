@@ -118,3 +118,46 @@ func TestResolveWindowAndPaneLabels(t *testing.T) {
 		t.Fatalf("label in two sessions: %v", err)
 	}
 }
+
+// Without a matching label, an agent name or a place in the tab names a
+// pane. Layout: a shell top-left, a pane labelled "right" below it, and
+// Codex filling the right half.
+func TestResolveAgentAndPositionHints(t *testing.T) {
+	c := rextest.Require(t)
+	dir := t.TempDir()
+	fake := filepath.Join(dir, "codex")
+	if err := os.WriteFile(fake, []byte("#!/usr/bin/python3\nimport time\ntime.sleep(300)\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	label := rextest.Label("hints")
+	session, shell := rextest.Session(t, c, label, "sleep", "300")
+	agent := rextest.Split(t, c, session, shell, "", fake)
+	var out struct {
+		BlockIDs []string `json:"block_ids"`
+	}
+	if err := c.JSON(ctx(t), &out, "split", "-s", session, "-b", shell, "--split=below", "--focus=false",
+		"--keep-open", "--json", "--label", "right", "--", "sleep", "300"); err != nil || len(out.BlockIDs) == 0 {
+		t.Fatalf("split below: %v", err)
+	}
+	below := out.BlockIDs[0]
+	time.Sleep(500 * time.Millisecond)
+
+	for target, want := range map[string]string{
+		"codex@" + label:       agent,
+		label + "/codex":       agent,
+		"top-left@" + label:    shell,
+		"bottom-left@" + label: below,
+		"right@" + label:       below, // a label wins over a hint
+		"top@" + label:         agent, // two panes; the only agent wins
+	} {
+		if a, err := rex.Resolve(ctx(t), c, target); err != nil || a.Block != want {
+			t.Errorf("%s: %+v %v, want %s", target, a.Block, err, want)
+		}
+	}
+	if _, err := rex.Resolve(ctx(t), c, "left@"+label); !errors.Is(err, rex.ErrAmbiguous) {
+		t.Errorf("left names two shells: %v", err)
+	}
+	if _, err := rex.Resolve(ctx(t), c, "claude@"+label); !errors.Is(err, rex.ErrNoTarget) {
+		t.Errorf("no claude pane: %v", err)
+	}
+}

@@ -172,6 +172,27 @@ func TestSkipsPaneWithNativeAdapter(t *testing.T) {
 	}
 }
 
+// A binding is live only while Rex reports its PID in the foreground. A
+// stale one, or a live one whose daemon is gone, sends nothing natively.
+func TestStaleBindingFallsBack(t *testing.T) {
+	f := setup(t)
+	a := agenttest.Start(t, f.rex, f.bin, "codex")
+	proc, err := f.rex.Process(t.Context(), a.Session, a.Block)
+	if err != nil || proc.Foreground == nil {
+		t.Fatalf("process %+v, %v", proc, err)
+	}
+	for _, pid := range []int{proc.Foreground.PID + 100000, proc.Foreground.PID} {
+		f.st.BindCodex(a.Block, store.CodexBinding{Thread: "T1", CodexHome: t.TempDir(), PID: pid})
+		e := f.queue(a.Session, a.Block, "hello")
+		want(t, f.attempt(e.ID), store.Submitted, "")
+		a.Control("done")
+		a.WaitStatus(f.rex, "done")
+	}
+	if got := a.Submitted(); len(got) != 2 {
+		t.Fatalf("submitted %d messages", len(got))
+	}
+}
+
 func TestWatchDeliversWhenAgentComesToRest(t *testing.T) {
 	f := setup(t)
 	a := agenttest.Start(t, f.rex, f.bin, "claude")

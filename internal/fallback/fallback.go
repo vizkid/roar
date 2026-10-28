@@ -1,5 +1,7 @@
-// Package fallback delivers messages by typing into a Rex pane, but only
-// after the readiness proof says the agent's composer is empty.
+// Package fallback runs the delivery pass every command shares. It delivers
+// natively to a Codex pane with a live binding, and otherwise types into a
+// Rex pane, but only after the readiness proof says the agent's composer is
+// empty.
 package fallback
 
 import (
@@ -29,8 +31,8 @@ type Outcome struct {
 	Reason string      `json:"reason,omitempty"`
 }
 
-// Attempt tries to deliver one queued message by typing. A message another
-// process is handling, or one not queued, is left alone.
+// Attempt tries to deliver one queued message, natively or by typing. A
+// message another process is handling, or one not queued, is left alone.
 func (d *Deliverer) Attempt(ctx context.Context, id string) (Outcome, error) {
 	c, err := d.Store.Claim(id)
 	if errors.Is(err, store.ErrBusy) {
@@ -47,6 +49,9 @@ func (d *Deliverer) Attempt(ctx context.Context, id string) (Outcome, error) {
 	to := m.Envelope.To
 	if d.Store.AdapterLive(to.Block) {
 		return d.hold(c, "native_adapter")
+	}
+	if handled, err := d.codex(ctx, c); handled || err != nil {
+		return outcome(c.Message()), err
 	}
 	r := ready.Probe(ctx, d.Rex, to.Session, to.Block, 0)
 	switch {

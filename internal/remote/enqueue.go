@@ -124,6 +124,25 @@ func (h Host) Install(ctx context.Context, binary []byte) error {
 	return nil
 }
 
+// Setup runs `roar setup` on the host and returns what it printed.
+func (h Host) Setup(ctx context.Context) (string, error) {
+	code, screen, err := h.run(ctx, h.roarCommand("setup"), nil, false)
+	if err != nil {
+		return "", err
+	}
+	var lines []string
+	for _, l := range strings.Split(screen, "\n") {
+		if l = strings.TrimRight(l, " "); l != "" {
+			lines = append(lines, l)
+		}
+	}
+	out := strings.Join(lines, "\n")
+	if code != 0 {
+		return out, fmt.Errorf("%w: setup exited %d", ErrRefused, code)
+	}
+	return out, nil
+}
+
 func markedLines(screen, marker string) [][]string {
 	var out [][]string
 	sc := bufio.NewScanner(strings.NewReader(screen))

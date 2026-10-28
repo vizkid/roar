@@ -2,7 +2,7 @@
 
 Message routing between [Rex](https://www.superlogical.com/rex/) sessions and panes.
 
-Roar delivers through an agent's native channel when one is connected: Claude Code channels, or the Codex App Server.
+Roar delivers through an agent's native channel when one is connected: Claude Code channels, or the Codex App Server daemon that every Codex TUI already uses.
 Without one, it types through Rex, but only after proving that the pane holds an agent with an empty composer.
 Otherwise it holds the message. There is no daemon: the commands share a directory of files.
 
@@ -12,18 +12,26 @@ The design and its evidence are in [docs/SPEC.md](docs/SPEC.md).
 
 ```sh
 go build -o ~/.local/bin/roar ./cmd/roar
-roar install <rex-host-label>      # copy it to another Rex host's ~/.local/bin
+roar setup                         # add Roar to every Claude and Codex config root in $HOME
+roar install <rex-host-label>      # copy it to another Rex host's ~/.local/bin and run setup there
 ```
 
+Roar never wraps an agent. `roar setup` puts it in each agent's default config, so a plain `claude` or `codex` gets it:
+
+| Config root | Found as | What setup adds |
+| --- | --- | --- |
+| Claude | `~/.claude`, `~/.claude-*`, `$CLAUDE_CONFIG_DIR` | The `roar` skill, and a user-scope MCP server `roar` (`roar mcp`) |
+| Codex | `~/.codex`, `~/.codex-*`, `$CODEX_HOME` | The `roar` skill, and a `SessionStart` hook (`roar hook codex`) that records which thread each pane shows |
+
+Run it again after you move the binary. It changes only what differs.
+Two steps stay with you, because each one is a consent the agent asks for:
+
+1. Start Claude with `--dangerously-load-development-channels server:roar`, for example in the shell function or alias that already starts `claude`. Claude loads channels only from that flag.
+2. Run `/hooks` once in each Codex home and trust the Roar hook. Codex does not run a new hook until you do.
+
+Without them, messages still arrive by typing through Rex.
 
 ## Use
-
-Start agents through Roar so they receive messages natively:
-
-```sh
-roar claude [claude args...]     # accept the development-channel prompt once
-roar codex [codex args...]
-```
 
 Send from any Rex pane:
 
@@ -41,16 +49,17 @@ roar read <id> --mark
 roar send --reply <id> "Done."
 ```
 
-`roar claude` and `roar codex` install a `roar` skill in the agent's config root (`~/.claude/skills/roar`, `~/.codex/skills/roar`, or under `CLAUDE_CONFIG_DIR` or `CODEX_HOME`).
-The skill teaches the agent to answer messages and send its own.
+The `roar` skill teaches the agent to answer messages and send its own.
 `roar send` prints `<id> <state> [reason]`, so neither you nor an agent needs a follow-up `roar status`.
 
 A target is a Rex session, tab (window) or pane label, `tab@session` (or `session/tab`), or a block ID. Put `host:` in front for another Rex host.
+Where no label matches, a hint names the pane: the agent it runs (`codex@roar`, `claude@roar`) or where it sits in its tab (`left`, `right`, `top`, `bottom`, `top-left`, and so on). A label always wins over a hint.
 
-| The recipient was started with | Delivery |
+| The recipient is | Delivery |
 | --- | --- |
-| `roar claude` or `roar codex` | Native, with provider receipt (`read`) |
-| Plain `claude` or `codex` | Typed through Rex when the composer is empty (`submitted`); otherwise held |
+| Claude started with the `server:roar` channel flag | Native, with provider receipt (`read`) |
+| Codex in a home where the Roar hook is trusted | Native: a new turn when idle, a steer when busy (`read`) |
+| Any other Claude or Codex | Typed through Rex when the composer is empty (`submitted`); otherwise held |
 | Anything else | Held; never typed into |
 
 Held messages go out on the next send to that pane, on `roar deliver`, or automatically while `roar deliver --watch` runs on that host.
@@ -61,7 +70,7 @@ A message whose delivery outcome is unknown is never retried automatically. Chec
 
 ```sh
 scripts/check.sh                 # format, vet, tests, 300-line file limit
-ROAR_LIVE=1 ROAR_LIVE_DIR=<dir both agents trust> go test ./... -run Live
+ROAR_LIVE=1 ROAR_LIVE_DIR=<dir both agents trust> go test ./... -run Live   # Codex needs roar setup and a trusted hook
 ```
 
 Most tests run real Rex panes. The live tests drive real Claude Code and Codex and spend a few short model turns.

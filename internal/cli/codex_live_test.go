@@ -3,7 +3,6 @@ package cli
 import (
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -12,8 +11,10 @@ import (
 	"github.com/vizkid/roar/internal/store"
 )
 
-// TestLiveCodexChannel drives real Codex through `roar codex`. It needs
-// ROAR_LIVE=1 and ROAR_LIVE_DIR, and spends a few short model turns.
+// TestLiveCodexChannel drives a plain Codex in a Rex pane. It needs
+// ROAR_LIVE=1, ROAR_LIVE_DIR, and a Codex home where `roar setup` ran and
+// the operator trusted the Roar hook with /hooks. It spends a few short
+// model turns.
 func TestLiveCodexChannel(t *testing.T) {
 	if os.Getenv("ROAR_LIVE") != "1" || os.Getenv("ROAR_LIVE_DIR") == "" {
 		t.Skip("set ROAR_LIVE=1 and ROAR_LIVE_DIR to run live agent tests")
@@ -23,21 +24,18 @@ func TestLiveCodexChannel(t *testing.T) {
 	if err != nil {
 		t.Skip("codex not on PATH")
 	}
-	roarBin := filepath.Join(t.TempDir(), "roar")
-	if b, err := exec.Command("go", "build", "-o", roarBin, "../../cmd/roar").CombinedOutput(); err != nil {
-		t.Fatalf("build: %v %s", err, b)
-	}
-	cmd := []string{"env", "-C", os.Getenv("ROAR_LIVE_DIR"), "ROAR_HOME=" + h.home, "ROAR_CODEX_BIN=" + codexBin}
+	cmd := []string{"env", "-C", os.Getenv("ROAR_LIVE_DIR"), "ROAR_HOME=" + h.home}
 	if v := os.Getenv("CODEX_HOME"); v != "" {
 		cmd = append(cmd, "CODEX_HOME="+v)
 	}
 	label := rextest.Label("codex")
-	session, block := rextest.Session(t, h.rex, label, append(cmd, roarBin, "codex")...)
+	session, block := rextest.Session(t, h.rex, label, append(cmd, codexBin)...)
 	sender := h.pane("sender")
 	waitAgentRest(t, h, session, block)
 	st, _ := store.Open(h.home)
-	if !st.AdapterLive(block) {
-		t.Fatal("roar codex holds no adapter lock")
+	var bound store.CodexBinding
+	if !waitFor(10*time.Second, func() bool { b, ok := st.CodexBinding(block); bound = b; return ok }) {
+		t.Fatal("no binding: run roar setup and trust the Roar hook with /hooks in this Codex home")
 	}
 	screen := func() string {
 		b, _ := h.rex.Run(t.Context(), "capture", "-s", session, "-b", block, "--trim")
@@ -85,6 +83,9 @@ func TestLiveCodexChannel(t *testing.T) {
 	h.rex.Run(t.Context(), "send-key", "-s", session, "-b", block, "enter")
 	time.Sleep(3 * time.Second)
 	waitAgentRest(t, h, session, block)
+	if !waitFor(10*time.Second, func() bool { b, _ := st.CodexBinding(block); return b.Thread != bound.Thread }) {
+		t.Fatal("/new did not rebind the pane")
+	}
 	id = h.send(sender, "send", label, "Roar live test after new: reply with the word FRESH only.")
 	settle(id)
 	if !waitFor(30*time.Second, func() bool { return strings.Contains(screen(), "Roar live test after new") }) {
