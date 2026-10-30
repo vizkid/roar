@@ -214,6 +214,7 @@ func TestAgentNames(t *testing.T) {
 		"devin":  {Name: "devin", Path: "/u/.local/share/devin/cli/_versions/3000.11.92/bin/devin", Argv0: "devin"},
 		"claude": {Name: "2.1.311", InvokedPath: "/u/.local/bin/claude"},
 		"codex":  {Name: "node", Path: "/usr/bin/node", Script: "/x/bin/codex"},
+		"agy":    {Name: "agy", Path: "/u/.local/bin/agy", InvokedPath: "/u/.local/bin/agy", Argv0: "agy"},
 		"":       {Name: "zsh", Path: "/bin/zsh", Argv0: "-zsh"},
 	} {
 		if got := p.Agent(); got != want {
@@ -234,5 +235,20 @@ func TestResolveDevinHint(t *testing.T) {
 	time.Sleep(500 * time.Millisecond)
 	if a, err := rex.Resolve(ctx(t), c, "devin@"+label); err != nil || a.Block != devin {
 		t.Fatalf("devin hint: %+v %v, want %s", a.Block, err, devin)
+	}
+}
+
+func TestResolveAgyHint(t *testing.T) {
+	c := rextest.Require(t)
+	fake := filepath.Join(t.TempDir(), "agy")
+	if err := os.WriteFile(fake, []byte("#!/usr/bin/python3\nimport time\ntime.sleep(300)\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	label := rextest.Label("agy")
+	session, shell := rextest.Session(t, c, label, "sleep", "300")
+	agy := rextest.Split(t, c, session, shell, "", fake)
+	time.Sleep(500 * time.Millisecond)
+	if a, err := rex.Resolve(ctx(t), c, "agy@"+label); err != nil || a.Block != agy {
+		t.Fatalf("agy hint: %+v %v, want %s", a.Block, err, agy)
 	}
 }

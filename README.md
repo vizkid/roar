@@ -57,13 +57,14 @@ The `roar` skill teaches the agent to answer messages and send its own.
 `roar send` prints `<id> <state> [reason]`, so neither you nor an agent needs a follow-up `roar status`.
 
 A target is a Rex session, tab (window) or pane label, `tab@session` (or `session/tab`), or a block ID. Put `host:` in front for another Rex host, for example `baroni:claude@burns`, or the host's DNS name when Rex has no label for it. This machine's own name works too, so an address copied from another host's message can be sent back from here.
-Where no label matches, a hint names the pane: the agent it runs (`codex@roar`, `claude@roar`, `devin@roar`) or where it sits in its tab (`left`, `right`, `top`, `bottom`, `top-left`, and so on). `peer` on its own names the other pane in your tab, so two agents side by side can write `roar send peer "..."`. A label always wins over a hint.
+Where no label matches, a hint names the pane: the agent it runs (`codex@roar`, `claude@roar`, `devin@roar`, `agy@roar`) or where it sits in its tab (`left`, `right`, `top`, `bottom`, `top-left`, and so on). `peer` on its own names the other pane in your tab, so two agents side by side can write `roar send peer "..."`. A label always wins over a hint.
 
 | The recipient is | Delivery |
 | --- | --- |
 | Claude started with the `server:roar` channel flag | Native, with provider receipt (`read`) |
 | Codex in a home where the Roar hook is trusted | Native: a new turn when idle, a steer when busy (`read`) |
-| Any other Claude | Typed through Rex when Claude is at rest with an empty composer (`submitted`); otherwise held |
+| Antigravity CLI (`agy`) after it ran `roar bind agy` (or any `roar` command) | Native through `agy agentapi send-message`: a new turn when idle, joins the turn when busy (`read`). The session token stays in a 0600 file on that host. |
+| Any other Claude, or an unbound agy | Typed through Rex when the agent is at rest with an empty composer (`submitted`); otherwise held |
 | Any other Codex, or Devin CLI | Typed through Rex when the composer is empty (`submitted`). Mid-turn, Enter adds the message to the running turn (proof `rex_steer`). |
 | Anything else | Held; never typed into |
 

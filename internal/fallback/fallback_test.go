@@ -66,7 +66,7 @@ func want(t *testing.T, got Outcome, state store.State, reason string) {
 
 func TestSubmitsIntoEmptyComposer(t *testing.T) {
 	f := setup(t)
-	for _, kind := range []string{"claude", "codex", "devin"} {
+	for _, kind := range []string{"claude", "codex", "devin", "agy"} {
 		a := agenttest.Start(t, f.rex, f.bin, kind)
 		e := f.queue(a.Session, a.Block, "first line\nsecond line")
 		want(t, f.attempt(e.ID), store.Submitted, "")

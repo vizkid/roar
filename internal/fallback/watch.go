@@ -37,6 +37,7 @@ func (d *Deliverer) All(ctx context.Context) ([]Outcome, error) {
 	if _, err := d.Store.SettleOrphans(d.Now()); err != nil {
 		return nil, err
 	}
+	d.Store.PruneAgy()
 	blocks, err := d.queuedBlocks()
 	if err != nil {
 		return nil, err

@@ -1,5 +1,5 @@
 // Command testagent imitates an agent's composer for Roar's tests. Built as
-// "claude", "codex" or "devin", it draws that agent's composer and reports program
+// "claude", "codex", "devin" or "agy", it draws that agent's composer and reports program
 // status (OSC 7501) like the real agent, so fallback tests can run in real
 // Rex panes without model calls.
 //
@@ -10,9 +10,11 @@
 //	TESTAGENT_ON_PASTE  state to enter as soon as a paste arrives (simulates a race)
 //	TESTAGENT_WORK_MS   how long a submitted turn stays working (default 300)
 //	TESTAGENT_DROP_PASTE  ignore pastes, as if they never reached the composer
+//	TESTAGENT_API       built as agy: serve the fake agent API (agentapi.go)
 //
 // Built as codex or devin, Enter mid-turn adds the prompt to the running
-// turn and sends no new status report, as real Codex does.
+// turn and sends no new status report, as real Codex does. Built as agy,
+// `agy agentapi ...` runs the fake agent API's client instead.
 package main
 
 import (
@@ -41,11 +43,21 @@ type agent struct {
 
 func main() {
 	a := &agent{marker: "❯ ", app: "claude-code", state: "idle", hint: "\x1b[2mTry something\x1b[0m"}
-	switch filepath.Base(os.Args[0]) {
+	name := filepath.Base(os.Args[0])
+	if name == "agy" && len(os.Args) > 1 && os.Args[1] == "agentapi" {
+		agentapi(os.Args[2:])
+		return
+	}
+	switch name {
 	case "codex":
 		a.marker, a.app = "› ", "codex"
 	case "devin": // Devin draws its placeholder grey, not dim
 		a.marker, a.app, a.hint = "❭ ", "devin", "\x1b[38;2;124;124;124mAsk Devin\x1b[0m"
+	case "agy": // Antigravity draws no placeholder
+		a.marker, a.app, a.hint = "> ", "antigravity", ""
+		if dir := os.Getenv("TESTAGENT_API"); dir != "" {
+			go a.serveAPI(dir)
+		}
 	}
 	old, err := term.MakeRaw(0)
 	if err != nil {
@@ -164,11 +176,23 @@ func (a *agent) submit() {
 	a.mu.Lock()
 	text := string(a.draft)
 	a.draft = nil
-	steer := a.app != "claude-code" && a.state == "working"
+	steer := (a.app == "codex" || a.app == "devin") && a.state == "working"
 	a.mu.Unlock()
-	if text == "" {
-		return
+	if text != "" {
+		a.take(text, steer)
 	}
+}
+
+// receive takes a message from the agent API: it joins a running turn.
+func (a *agent) receive(text string) {
+	a.mu.Lock()
+	steer := a.state == "working"
+	a.mu.Unlock()
+	a.take(text, steer)
+}
+
+// take logs a prompt, then starts a turn or, with steer, joins the running one.
+func (a *agent) take(text string, steer bool) {
 	if path := os.Getenv("TESTAGENT_LOG"); path != "" {
 		f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 		if err == nil {

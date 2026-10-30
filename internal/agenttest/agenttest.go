@@ -24,7 +24,7 @@ type Agent struct {
 	log, ctl              string
 }
 
-// Build compiles the test agent as dir/claude, dir/codex and dir/devin.
+// Build compiles the test agent as dir/claude, dir/codex, dir/devin and dir/agy.
 func Build(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -40,7 +40,7 @@ func Build(t *testing.T) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"codex", "devin"} {
+	for _, name := range []string{"codex", "devin", "agy"} {
 		if err := os.WriteFile(filepath.Join(dir, name), data, 0o755); err != nil {
 			t.Fatal(err)
 		}

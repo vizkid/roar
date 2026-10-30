@@ -87,7 +87,7 @@ func orphanReason(r Record) string {
 	switch {
 	case r.State == Submitting:
 		return "interrupted_while_typing"
-	case r.State == Written && strings.HasPrefix(r.Writer, "codex:"):
+	case r.State == Written && (strings.HasPrefix(r.Writer, "codex:") || strings.HasPrefix(r.Writer, "agy:")):
 		return "interrupted_while_writing"
 	}
 	return ""

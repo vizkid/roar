@@ -63,6 +63,9 @@ func (d *Deliverer) Attempt(ctx context.Context, id string) (Outcome, error) {
 	if handled, err := d.codex(ctx, c); handled || err != nil {
 		return outcome(c.Message()), err
 	}
+	if handled, err := d.agy(ctx, c); handled || err != nil {
+		return outcome(c.Message()), err
+	}
 	r := ready.Probe(ctx, d.Rex, to.Session, to.Block, 0)
 	switch {
 	case r.Verdict == ready.Refuse && r.Reason == "dead_pane":

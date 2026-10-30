@@ -20,6 +20,7 @@ func fixture(t *testing.T, name string) string {
 var claudeProc = rex.Proc{PID: 100, Name: "2.1.311", InvokedPath: "/home/u/.local/bin/claude", Argv0: "/home/u/.local/bin/claude"}
 var codexProc = rex.Proc{PID: 200, Name: "node", Path: "/usr/bin/node", Script: "/usr/lib/node_modules/@openai/codex/bin/codex"}
 var devinProc = rex.Proc{PID: 300, Name: "devin", Path: "/home/u/.local/share/devin/cli/_versions/3000.11.92/bin/devin", Argv0: "devin"}
+var agyProc = rex.Proc{PID: 400, Name: "agy", Path: "/home/u/.local/bin/agy", InvokedPath: "/home/u/.local/bin/agy", Argv0: "agy"}
 
 func status(state string, proc rex.Proc, app string) *rex.StatusRecord {
 	r := &rex.StatusRecord{State: state, App: app, EffectiveApp: app}
@@ -37,6 +38,8 @@ func snap(t *testing.T, agent, screen, state string) Snapshot {
 		proc, app = codexProc, "codex"
 	case "devin":
 		proc, app = devinProc, "devin"
+	case "agy":
+		proc, app = agyProc, "antigravity"
 	}
 	p := proc
 	return Snapshot{
@@ -56,7 +59,7 @@ func expect(t *testing.T, name string, got Result, v Verdict, reason string) {
 }
 
 func TestComposerStates(t *testing.T) {
-	for _, agent := range []string{"claude", "codex", "devin"} {
+	for _, agent := range []string{"claude", "codex", "devin", "agy"} {
 		expect(t, agent+" idle", Decide(snap(t, agent, "idle", "idle"), 0), Empty, "empty")
 		expect(t, agent+" done", Decide(snap(t, agent, "idle", "done"), 0), Empty, "empty")
 		expect(t, agent+" draft", Decide(snap(t, agent, "draft", "idle"), 0), Wait, "draft")
@@ -66,8 +69,10 @@ func TestComposerStates(t *testing.T) {
 		expect(t, agent+" unknown status", Decide(snap(t, agent, "idle", "thinking"), 0), Wait, "modal")
 	}
 	// A mid-turn composer looks empty; only the status tells. Claude queues
-	// mid-turn input, so it waits; Codex and Devin add it to the running turn.
+	// mid-turn input, so it waits, and so does Antigravity; Codex and Devin
+	// add it to the running turn.
 	expect(t, "claude working", Decide(snap(t, "claude", "idle", "working"), 0), Wait, "busy")
+	expect(t, "agy working", Decide(snap(t, "agy", "idle", "working"), 0), Wait, "busy")
 	expect(t, "devin working", Decide(snap(t, "devin", "idle", "working"), 0), Empty, "mid_turn")
 	expect(t, "devin working, draft", Decide(snap(t, "devin", "draft", "working"), 0), Wait, "draft")
 	expect(t, "codex working", Decide(snap(t, "codex", "idle", "working"), 0), Empty, "mid_turn")
@@ -162,7 +167,7 @@ func TestParseScreen(t *testing.T) {
 // A mid-turn submit needs proof that the paste reached the composer, also
 // when a long draft puts the cursor on a continuation row.
 func TestDrafted(t *testing.T) {
-	for _, agent := range []string{"claude", "codex", "devin"} {
+	for _, agent := range []string{"claude", "codex", "devin", "agy"} {
 		idle, _ := parseScreen(fixture(t, agent+"-idle"), 24)
 		draft, _ := parseScreen(fixture(t, agent+"-draft"), 24)
 		if drafted(idle, agent) || !drafted(draft, agent) {
@@ -188,4 +193,20 @@ func TestDevinPlaceholderColour(t *testing.T) {
 	c := snap(t, "claude", "idle", "idle")
 	c.VT = strings.Replace(c.VT, "\x1b[2mTry", "\x1b[38;2;124;124;124mTry", 1)
 	expect(t, "claude with devin grey", Decide(c, 0), Wait, "draft")
+}
+
+// The ASCII ">" is Antigravity's marker only: a quoted line in another
+// agent's draft also starts with "> ".
+func TestAgyMarkerOnlyForAgy(t *testing.T) {
+	s := snap(t, "claude", "idle", "idle")
+	s.VT = fixture(t, "agy-idle")
+	expect(t, "agy screen in a claude pane", Decide(s, 0), Wait, "no_marker")
+	r := Decide(snap(t, "agy", "idle", "idle"), 0)
+	if r.Agent != "agy" || r.PID != 400 {
+		t.Fatalf("got %+v", r)
+	}
+	// A fresh agy trims the blank cells after an empty marker.
+	s = snap(t, "agy", "idle", "idle")
+	s.VT = strings.Replace(s.VT, ">\x1b[1C\x1b[0m     ", ">\x1b[0m", 1)
+	expect(t, "agy bare marker", Decide(s, 0), Empty, "empty")
 }

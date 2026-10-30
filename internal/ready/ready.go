@@ -52,10 +52,14 @@ type Snapshot struct {
 	VT            string
 }
 
-var agentApps = map[string]string{"claude": "claude-code", "codex": "codex", "devin": "devin"}
+var agentApps = map[string]string{"claude": "claude-code", "codex": "codex", "devin": "devin", "agy": "antigravity"}
 
-// marker reports a composer prompt: Claude's, Codex's or Devin's.
-func marker(r rune) bool { return r == '❯' || r == '›' || r == '❭' }
+// marker reports a composer prompt: Claude's, Codex's or Devin's, or for
+// Antigravity its ASCII ">". That one counts only in an agy pane, because a
+// quoted line in another agent's draft also starts with "> ".
+func marker(r rune, agent string) bool {
+	return r == '❯' || r == '›' || r == '❭' || (r == '>' && agent == "agy")
+}
 
 // App is the program status app an agent reports as.
 func App(agent string) string { return agentApps[agent] }
@@ -129,7 +133,7 @@ func drafted(sc screen, agent string) bool {
 		if r.isRule() {
 			return false
 		}
-		if len(r.cells) >= 2 && marker(r.cells[0].r) {
+		if len(r.cells) >= 1 && marker(r.cells[0].r, agent) {
 			return r.typedText(2, agent) || i < sc.cursorRow-1
 		}
 		if !r.typedText(0, agent) {
@@ -148,8 +152,10 @@ func composer(sc screen, agent string) string {
 		return "no_marker"
 	}
 	r := sc.rows[i]
-	if len(r.cells) < 2 || !marker(r.cells[0].r) ||
-		(r.cells[1].r != ' ' && r.cells[1].r != ' ') {
+	// The marker is followed by a space, or ends the row: a fresh agy trims
+	// the blank cells after an empty marker.
+	if len(r.cells) < 1 || !marker(r.cells[0].r, agent) ||
+		(len(r.cells) > 1 && r.cells[1].r != ' ' && r.cells[1].r != ' ') {
 		return "no_marker"
 	}
 	if sc.cursorCol != 3 || r.typedText(2, agent) {

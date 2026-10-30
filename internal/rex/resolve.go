@@ -161,7 +161,7 @@ func named(ctx context.Context, c Client, session, pane string) ([]Block, error)
 // hinted lists the panes an agent name or a position word names.
 func hinted(ctx context.Context, c Client, session string, terms []Block, windows []Window, hint string) []Block {
 	var hits []Block
-	if hint == "claude" || hint == "codex" || hint == "devin" {
+	if hint == "claude" || hint == "codex" || hint == "devin" || hint == "agy" {
 		for _, b := range terms {
 			if p, err := c.Process(ctx, session, b.ID); err == nil && p.Foreground != nil && p.Foreground.Agent() == hint {
 				hits = append(hits, b)

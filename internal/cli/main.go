@@ -53,6 +53,7 @@ var commands = map[string]command{
 	"deliver":  cmdDeliver,
 	"mcp":      cmdMCP,
 	"hook":     cmdHook,
+	"bind":     cmdBind,
 	"enqueue":  cmdEnqueue,
 	"setup":    cmdSetup,
 	"install":  cmdInstall,
@@ -74,6 +75,7 @@ const usage = `usage: roar <command> [args]
   enqueue --sha256 <digest>  receive a message from another host (Roar runs this itself)
   mcp                        the Claude adapter (Claude starts it; do not run it yourself)
   hook codex                 the Codex SessionStart hook (Codex runs it; do not run it yourself)
+  bind agy                   in Antigravity: let Roar deliver to this session directly
 `
 
 // Main runs one command and returns its exit code.

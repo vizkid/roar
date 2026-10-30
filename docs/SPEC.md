@@ -1,6 +1,6 @@
 # Roar specification
 
-Owner: Viz. Updated: 2026-10-28. Formerly named Ping; renamed to Roar on 2026-10-27, because `ping` shadowed the system's network `ping`. Status: implemented on `main`; the spec itself is not yet ratified.
+Owner: Viz. Updated: 2026-10-30. Formerly named Ping; renamed to Roar on 2026-10-27, because `ping` shadowed the system's network `ping`. Status: implemented on `main`; the spec itself is not yet ratified.
 
 ## Problem and solution
 
@@ -20,7 +20,7 @@ Otherwise it holds the message.
 | In scope | Out of scope |
 | --- | --- |
 | Messages between Rex panes, on one host or across Rex hosts | A separate agent identity or address registry |
-| Native delivery adapters for Claude Code and Codex | Task coordination and issue launching (deferred) |
+| Native delivery adapters for Claude Code, Codex and Antigravity CLI | Task coordination and issue launching (deferred) |
 | Terminal-input fallback through Rex, with readiness proof | Credentials and accounts (separate tools) |
 | A durable per-host message store | Roles, delegation, broadcast |
 | `roar setup`, which adds Roar to each agent's default config | Wrapping or launching agents; service installation |
@@ -55,6 +55,7 @@ Implementation language: Go.
 | `roar install [--binary <path>] <host>` | Copies this binary, or the one `--binary` names, to another Rex host's `~/.local/bin`, then runs `roar setup` there. | 0, 2 |
 | `roar mcp` | Claude adapter. Claude starts it; operators never run it. | |
 | `roar hook codex` | Codex `SessionStart` hook. Records which thread the pane shows. Codex runs it; operators never do. | always 0 |
+| `roar bind agy` | Run by an Antigravity agent in its own pane. Records the session's conversation and its local agent API credentials, so Roar can deliver natively. Any other `roar` command agy runs refreshes the binding too. See [Antigravity adapter](#antigravity-adapter). | 0 bound, 2 refused |
 
 `-h` or `--help` after any command prints the usage and exits 0. It is never read as a target or host.
 
@@ -74,7 +75,7 @@ A recipient is one Rex block: `(server, session_id, block_id)`.
 
 | Hint | Names |
 | --- | --- |
-| `claude`, `codex`, `devin` | The panes whose foreground program is that agent, by the same test the readiness proof uses |
+| `claude`, `codex`, `devin`, `agy` | The panes whose foreground program is that agent, by the same test the readiness proof uses |
 | `left`, `right`, `top`, `bottom` | The panes on that edge of their window's tiled layout |
 | `top-left`, `top-right`, `bottom-left`, `bottom-right` | The panes on both edges |
 | `peer`, alone | The other panes in the sender's own window. It takes no session or host, because it is relative to the sender. With two side-by-side panes it names the other one. |
@@ -179,7 +180,7 @@ A message is found only in `box/<its recipient>/<its ID>` under the store. An in
 ## Agent activity from Rex
 
 Rex tracks each agent's turn state through its program status protocol (OSC 7501).
-Claude Code, Codex and Devin CLI all report it natively. No hook setup is needed. Devin reports app `devin` and a `msg` such as `Thinking` or `Devin finished`.
+Claude Code, Codex, Devin CLI and Antigravity CLI all report it natively. No hook setup is needed. Devin reports app `devin` and a `msg` such as `Thinking` or `Devin finished`. Antigravity reports app `antigravity`, and `blocked` with kind `permission` for its approval prompt.
 Roar reads it with the block's `program_status` method and watches `program_status_changed` in `rex events`.
 
 | Status | Meaning for Roar |
@@ -212,6 +213,7 @@ Status alone cannot prove an empty composer. A typed draft leaves the status `id
 | --- | --- |
 | A native adapter holds `adapters/<block>.lock` | Native. Only the adapter delivers. |
 | The pane has a live [Codex binding](#binding-1) and its thread is loaded on the Codex daemon | Native, by whichever command holds the message lock |
+| The pane has a live [Antigravity binding](#binding-2) and agy reports `idle`, `done` or `working` | Native, by whichever command holds the message lock |
 | No native adapter, and the readiness proof says empty (Claude or Codex at rest, or Codex mid-turn) | Fallback, by whichever `roar send`, `roar enqueue`, or `roar deliver` holds the message lock |
 | No native adapter, and the proof says busy, draft, modal, or unknown | Hold, and start the [watcher](#the-watcher) if none runs. It retries when the pane comes to rest. |
 | The pane runs something that is not an agent, such as a shell | Hold with `wrong_program`. Roar never types into it; an agent may start there later, and a person can still read the message with `roar inbox`. |
@@ -290,7 +292,7 @@ Codex has no such gate. Its steer adds user input to the running turn.
 
 An adapter that starts takes `adapters/<block>.lock`, then settles messages left in flight for its block:
 
-| Left in state | Claude adapter | Codex adapter |
+| Left in state | Claude adapter | Codex and Antigravity adapters |
 | --- | --- | --- |
 | `written` | Re-scan the transcript. Apply any `accepted` or `read` record. Otherwise return to `queued`. | `unknown`. The turn may have run. |
 | `accepted` | Keep it while the same Claude process lives. Return it to `queued` after a remove record with no receipt. | Not used |
@@ -334,6 +336,7 @@ Without either step, the pane still gets messages through [fallback](#fallback-t
 | --- | --- |
 | Answering a message that just arrived | The skill. Its description names the `[roar <id> from ...]` header as its trigger. |
 | Sending on the agent's own initiative ("tell api-work the schema merged") | The skill: targets, `--request`, `--file`, `roar ready`, `roar status`. |
+| Native delivery to Antigravity | The skill asks an Antigravity agent to run `roar bind agy` once per session. Antigravity reads skills from the directories in `~/.gemini/config/skills.json`; setup does not write them. |
 
 The skill is one `SKILL.md`, embedded in the binary. Both tools read the same format.
 
@@ -456,6 +459,53 @@ Codex delivery runs in whichever command holds the message lock: `roar send`, `r
 - A disconnect or a 15-second timeout after the write is `unknown`. A live test showed a turn still ran after its client disconnected.
 - A message left `written` by a `codex:` writer whose claim is free became `unknown` with reason `interrupted_while_writing`. It is never replayed.
 
+## Antigravity adapter
+
+### Why the agent API
+
+Antigravity CLI (`agy`) runs a local agent API on `127.0.0.1`. `agy agentapi send-message <conversation> <text>` sends text into a conversation. The model sees the text directly: an idle session starts a turn, and a busy one takes it into the running turn (Evidence).
+The command needs two values that exist only inside the running agy process: `ANTIGRAVITY_LS_ADDRESS` (`localhost:<port>`) and `ANTIGRAVITY_CSRF_TOKEN`. agy gives them, with `ANTIGRAVITY_CONVERSATION_ID`, only to commands its own model runs. They are not in the agy process's environment or arguments, and hooks and MCP servers do not get them. Without them the call fails with `ANTIGRAVITY_LS_ADDRESS is not set` or `missing CSRF token`.
+So the binding comes from a `roar` command agy runs, the way a daemon-backed Codex is bound by its own `roar` calls.
+
+### Binding
+
+`roar bind agy` writes `agy/<block>.json` in the store, mode 0600. Every other `roar` command that finds `ANTIGRAVITY_CONVERSATION_ID` in its environment writes the same binding first, so a reply binds the pane without an extra step.
+
+| Field | Value |
+| --- | --- |
+| `conversation` | `ANTIGRAVITY_CONVERSATION_ID` |
+| `address` | `ANTIGRAVITY_LS_ADDRESS` |
+| `token` | `ANTIGRAVITY_CSRF_TOKEN` |
+| `exe` | `ANTIGRAVITY_AGENTAPI_EXE`, else the pane's foreground path |
+| `session` | The pane's Rex session |
+| `pid` | The pane's foreground PID from Rex, which is agy |
+| `at` | Write time |
+
+- It binds only when the pane's foreground process is agy and is an ancestor of the command, the same test as `roar hook codex`. An inherited `REX_BLOCK` binds nothing.
+- `roar bind agy` prints `bound <block>` and exits 0, or names the reason on stderr and exits 2. The implicit binding is silent and never fails the command it rides on.
+- The token lets its holder drive the session, so it stays on the agy's own host. The address listens only on `127.0.0.1`, so a copy elsewhere could not reach it, and every delivery to the pane already runs on that host (`roar enqueue` forwards cross-host sends there). Roar never prints the token, never forwards it, and deletes the binding when its agy process is gone.
+- The [agent skill](#agent-skill) asks an Antigravity agent to run `roar bind agy` once per session. agy asks its user to approve the command the first time.
+
+A binding is live while Rex reports the same foreground PID for the block, that process has not exited, and it runs agy. A binding that is not live, or whose pane is gone, is deleted at the next attempt. Every delivery pass (`roar send`, `roar deliver`, and each watcher sweep) also deletes bindings whose PID no longer runs on this host, so a dead token does not stay on disk when no message goes to its pane again.
+
+### Delivery and receipt
+
+Antigravity delivery runs in the command that holds the message lock, after the Codex check and before typing.
+
+1. Without a live binding, skip to the fallback.
+2. Read the pane's program status. `idle` and `done` mean boundary `turn`; `working` means `mid_turn`. Any other state, such as a permission prompt (`blocked`), holds the message with that state's proof reason. Sending then could land behind the prompt.
+3. Move the message to `written` with writer `agy:<pid>:<start>`.
+4. Run `<exe> agentapi send-message <conversation> <rendered message>` with only the binding's address and token added to the environment, for at most 15 seconds.
+
+| Result | Means |
+| --- | --- |
+| JSON with `response.sendMessage` | `read`, proof `agy_send_message`, the boundary from step 2 |
+| JSON with `error` and no `sendMessage` | Not delivered. Delete the binding, return the message to `queued`, and go on to the fallback in the same attempt. A stale token gives `Unauthenticated`. |
+| agy cannot start, such as a missing binary | Not delivered: `queued` with reason `agy_start: ...`, then the fallback. |
+| A timeout, a crash, or output that is not JSON | `unknown` with reason `agy_timeout`, `agy_reply_unreadable` or `agy_failed: ...`. The call may have reached agy. |
+
+A message left `written` by an `agy:` writer whose claim is free becomes `unknown` with reason `interrupted_while_writing`, as for Codex.
+
 ## Fallback through Rex
 
 ### Readiness proof
@@ -464,19 +514,20 @@ Codex delivery runs in whichever command holds the message lock: `roar send`, `r
 All readings are fresh, inside a 2-second window. The first verdict wins.
 
 1. **Refuse, dead pane.** A Rex call returns not found (exit 3), `process.last_exit` is set, or there is no foreground process.
-2. **Refuse, wrong program.** The foreground process is not `claude` (by `invoked_path` or `argv0`) or `codex` (by `script` or `path`) or `devin` (by `path` or `argv0`; Devin runs from `~/.local/share/devin/cli/_versions/<version>/bin/devin`), or its PID differs from the PID recorded when the message was stored.
-3. **Unknown, wait.** There is no `program_status` record, its owner's PID or name differs from the foreground process, or its app is not `claude-code`, `codex` or `devin`. This covers startup, the folder-trust dialog (Devin's too), and a stale record left by a killed agent.
-4. **Status.** For Claude, `working` means busy, wait. For Codex and Devin, `working` goes on to step 5: an empty composer then gives verdict empty with reason `mid_turn`. `blocked`, `error`, or any other value means unknown, wait.
+2. **Refuse, wrong program.** The foreground process is not `claude` (by `invoked_path` or `argv0`) or `codex` (by `script` or `path`) or `devin` (by `path` or `argv0`; Devin runs from `~/.local/share/devin/cli/_versions/<version>/bin/devin`) or `agy` (by `path` or `argv0`), or its PID differs from the PID recorded when the message was stored.
+3. **Unknown, wait.** There is no `program_status` record, its owner's PID or name differs from the foreground process, or its app is not `claude-code`, `codex`, `devin` or `antigravity` (for `agy`). This covers startup, the folder-trust dialog (Devin's too), and a stale record left by a killed agent.
+4. **Status.** For Claude and Antigravity, `working` means busy, wait. For Codex and Devin, `working` goes on to step 5: an empty composer then gives verdict empty with reason `mid_turn`. `blocked`, `error`, or any other value means unknown, wait.
 5. **Composer, for `idle` or `done`, and for a Codex or Devin `working`.** Read the screen with `format` (VT, `extra_cursor`):
    - a hidden cursor means unknown, wait;
-   - a cursor row that does not start with `❯` (Claude), `›` (Codex) or `❭` (Devin) means unknown, wait;
+   - a cursor row that does not start with `❯` (Claude), `›` (Codex), `❭` (Devin) or, for Antigravity only, `>` means unknown, wait. The ASCII `>` counts only for `agy`, because a quoted line in another agent's draft also starts with `> `;
+   - the marker is followed by a space, or ends the row: a fresh agy trims the blank cells after an empty `>`;
    - a cursor column other than 3 (1-based) means draft, wait;
    - text after the marker, or on continuation rows, that is not placeholder text means draft, wait. Claude and Codex draw placeholder text dim (SGR 2). Devin draws it in the foreground colour `38;2;124;124;124` and typed text in the default colour. Only that exact grey counts, and only for Devin: if a theme changes it, the placeholder reads as a draft and Roar waits.
    - Otherwise the composer is empty.
 
 Roar never reads composer text to decide whose draft it is. It asks only whether any non-placeholder text exists.
 
-The status check comes first because a mid-turn composer looks empty. Claude queues input typed mid-turn, so Roar waits for rest. Codex and Devin keep their composers live during a turn, and Enter adds the input to the running turn, like a native steer. Their turns can run for tens of minutes, so waiting for rest held most messages (Evidence). The dim-text check comes after the cursor check because a draft with its cursor moved home passes the cursor check.
+The status check comes first because a mid-turn composer looks empty. Claude and Antigravity queue input typed mid-turn, so Roar waits for rest; a busy Antigravity is reached natively instead. Codex and Devin keep their composers live during a turn, and Enter adds the input to the running turn, like a native steer. Their turns can run for tens of minutes, so waiting for rest held most messages (Evidence). The dim-text check comes after the cursor check because a draft with its cursor moved home passes the cursor check.
 
 ### Typing sequence
 
@@ -617,6 +668,9 @@ These drive the tests. Each one is covered; the test names are listed after the 
 29. `roar install` checks the header of the binary it copies. `--binary` copies the named build. A mismatch is refused with the build command. `-h` or `--help` after any command prints the usage.
 30. An unknown host prefix that contains a dot is used as the endpoint.
 31. An ambiguous pane list names each candidate's agent.
+33. Antigravity CLI is an agent: `agy@session` names its pane, an empty `>` composer at rest is empty (also with nothing after the marker), a draft waits, and a working agy waits for typed delivery. The `>` marker counts only for agy. A permission prompt reports `blocked` and waits.
+34. `roar bind agy` in an agy pane writes a 0600 binding with the conversation, address and token, prints `bound <block>`, and never prints the token. Outside agy, or with an inherited pane, it binds nothing and exits 2. Any `roar` command run with `ANTIGRAVITY_CONVERSATION_ID` binds silently.
+35. With a live binding, a message reaches agy through `agentapi send-message` as `read` with proof `agy_send_message`, boundary `turn` at rest and `mid_turn` while working. A permission prompt holds it. A rejected call deletes the binding and falls back to typing in the same attempt. A timeout or garbled reply is `unknown`. A binding whose agy exited is deleted and unused, also when no message goes to its pane.
 32. Devin CLI is an agent: `devin@session` names its pane, an empty `❭` composer at rest is empty, a draft (also with the cursor home) waits, and a working Devin with an empty composer takes the message mid-turn. Only Devin's own grey is placeholder text.
 27. A send that holds a typed message starts a watcher, unless one runs. The watcher delivers the message when the pane comes to rest, without another command, then exits. A watcher started while another runs exits at once. A watcher exits once no queued message lacks a native adapter.
 
@@ -650,6 +704,9 @@ These drive the tests. Each one is covered; the test names are listed after the 
 | 30 | `TestDottedHostPrefixIsEndpoint` |
 | 31 | `TestAmbiguousListsAgents` |
 | 32 | `TestComposerStates`, `TestDrafted`, `TestDevinPlaceholderColour`, `TestAgentNames`, `TestResolveDevinHint`, `TestSubmitsIntoEmptyComposer`, `TestSteersIntoBusyAgent` |
+| 33 | `TestComposerStates`, `TestDrafted`, `TestAgyMarkerOnlyForAgy`, `TestAgentNames`, `TestResolveAgyHint`, `TestSubmitsIntoEmptyComposer`, `TestHoldsWhileBusyOrModal` |
+| 34 | `TestBindAgyOwnPane`, `TestAgyCommandBindsSilently`, `TestBindAgyRefusesOutsideAgy`, `TestBindAgyIgnoresInheritedPane`, `TestBindingKeepsTokenPrivate` |
+| 35 | `TestAgyIdleIsTurn`, `TestAgyBusyIsMidTurn`, `TestAgyModalHolds`, `TestAgyRejectedFallsBackToTyping`, `TestAgyGarbledIsUnknown`, `TestAgyDeadBindingDeleted`, `TestPruneAgyDropsExited`, `TestCrashedAgyWriterSettlesToUnknown`, `TestAgyUnboundWaitsWhileBusy`, plus the live run in Evidence |
 | 27 | `TestSendStartsWatcherThatDeliversAndExits`, `TestWatchUntilIdleYieldsToRunningWatcher`, `TestWatchUntilIdleExitsWhenNothingHeld`, `TestNeedsWatcher` |
 
 ## Security model
@@ -663,6 +720,7 @@ These drive the tests. Each one is covered; the test names are listed after the 
 | A pane claims to be another pane | `REX_*` and, for Codex, the thread binding name the sender. | Any same-user process can set these variables, write a binding, or enqueue an envelope with invented `from` fields. Sender identity is a claim. |
 | The store is tampered with | IDs and block names are checked as single path elements. A message must live under its own ID in its recipient's box. New directories are 0700, files 0600. | A same-user process can rewrite any store file. |
 | A Codex socket is not the user's daemon | Roar follows Codex's socket link, then requires a socket owned by this user in a directory only it can write. Replies are capped at 64 MiB and writes have a deadline. | A same-user process can run its own daemon there. |
+| An Antigravity session token | The binding file is 0600, stays on the agy's host, is never printed or forwarded, and is deleted once its agy exits. Roar adds only the address and token to the one `agentapi` call. | A same-user process can read the file, and the token can drive that agy session while it runs. agy already gives the token to every command its model runs. |
 | Setup writes a shell command | The hook path is single-quoted when needed, and a path with control characters is refused. | |
 | `roar install` and remote commands | The binary goes through a fresh `mktemp` file and is renamed into place. A `$HOME/` path expands only `$HOME`; the rest is literal. | A host with Rex `new_block` access to another can already run commands there. |
 | `peer` is redirected | A real label `peer` wins over the hint, as every label does. | Renaming a session or tab changes where `peer` goes. |
@@ -677,6 +735,8 @@ Real isolation between agents needs a boundary Roar does not have: a broker that
 | How a daemon-backed Codex rebinds after `/new` before it receives a message | Until then native delivery goes to the old thread. A hook cannot help: it runs in the daemon. Rebinding needs a daemon signal that names the client of a thread. |
 | Whether Codex keeps hook trust after setup reformats `hooks.json` | Setup keeps every group and key in place but re-indents the file. Check `/hooks` after the first real run. |
 | What Claude does with an enqueued message it never absorbs (Esc, turn error) | Leave it `accepted` and show its age |
+| agy asks before it reads the roar skill, which lies outside its workspace, and before it runs `roar bind agy` | The approvals are agy's own gates. An operator can choose "always allow" for commands that start with `roar`. Roar does not write agy's permission settings. |
+| `agy agentapi` is not in `agy --help` and has no public documentation | It worked on agy 1.4.10. A changed reply shape reads as not JSON, so the message becomes `unknown` and is never sent twice. Recheck after agy updates. |
 | Program status kinds `question` and `auth` were not seen live | The proof treats every `blocked` as wait, which is safe |
 
 ## Evidence
@@ -738,6 +798,10 @@ Live probes on 2026-10-27 used Claude Code 2.1.311, Codex CLI 0.164.0, and two R
 | Typed input joins a running Devin turn | Live on Stiletto, 2026-10-30, Devin CLI 3000.11.92 (`--permission-mode smart`): during a `sleep 30` turn the composer showed the grey placeholder `Guide Devin while it works`, and `roar ready` gave `empty: mid_turn`. `roar send` printed `submitted` with proof `rex_steer`, and Devin ended that turn with `SECOND STEERED`. The cop session had asked Roar to wait for rest, as for Claude; this test showed Devin takes the input into the turn, so Roar treats it like Codex. |
 | A Mac can provision a Linux host | Live: `roar install colonelk-rex.tail4f2cce.ts.net` from Stiletto was refused before any write, with `host is "Linux x86_64", the binary is "Darwin arm64"` and the `GOOS=linux GOARCH=amd64` build command. `roar ready colonelk-rex.tail4f2cce.ts.net:stance` resolved on Colonelk, a host with no `rex hosts` label on the sender. |
 | `rex events` carries block events server-wide only with `--all` | Live: starting and ending a command in a new pane gave `process_changed` and `child_exited` on `rex events --all --json` and neither on plain `rex events --json`. The Rex events reference documents the same scopes. |
+| Antigravity takes direct messages through its agent API | Live on Stiletto, 2026-10-30, agy 1.4.10, in a scratch session. From a plain shell, `agentapi send-message` failed with `ANTIGRAVITY_LS_ADDRESS is not set`, then with only the address with `missing CSRF token`. With the address and token the agy model had given its own command, an idle agy started a turn and answered `TWO RECEIVED`. Sent 4 s into a `sleep 25` command, it joined that turn and agy answered `THREE RECEIVED` before the sleep ended. The token was in neither the agy process's environment nor its arguments. |
+| Antigravity queues typed mid-turn input | Live, same agy: text typed and entered during a `sleep 25` showed as `▸ TYPED MIDTURN ... (alt+m to send immediately)` above `Press up to edit queued messages`, not in the turn. |
+| Antigravity's composer and prompt | Live, agy 1.4.10: an empty composer is a blue `> ` between two grey rules with the cursor at column 3 and no placeholder text. A draft `hello draft` is default-colour text with the cursor at column 14. The permission prompt's selected row also starts with `> `, but agy then reports `blocked` (kind `permission`) and hides the cursor. A banner above the composer (`esc to dismiss`) leaves the status `idle` and the cursor row unchanged. |
+| Roar delivers to Antigravity end to end | Live on Stiletto, 2026-10-30, agy 1.4.10, scratch session `roar-agy-live`. A fresh agy first gave `wait: no_marker`: its empty composer row was a bare `>`, which the proof then learned. Unbound, `roar send` printed `submitted` and agy answered `TYPED OK`; while it asked to read the skill file outside its workspace, `roar ready` gave `wait: modal`. Asked by message, agy ran `roar bind agy` after one approval, and Roar wrote a 0600 binding. Then a send printed `read` (`agy_send_message`, boundary `turn`) and agy answered `NATIVE IDLE OK`. During its approval prompt for `sleep 25`, a send printed `queued modal`. After approval, a send printed `read` with boundary `mid_turn`, the watcher delivered the held one the same way, and agy listed both while the sleep ran. After the session was closed, one `roar deliver` deleted the binding. |
 | A new hook needs operator trust; a bypass is refused | `--dangerously-bypass-hook-trust` exists, but Roar never uses it, and an agent's attempt to was refused by its own safety check |
 
 ## Related documents
