@@ -34,10 +34,11 @@ func (c Client) Process(ctx context.Context, session, block string) (Process, er
 	return p, c.Call(ctx, &p, session, block, "process", nil)
 }
 
-// Agent names the agent a process runs: "claude", "codex", or "".
+// Agent names the agent a process runs: "claude", "codex", "devin", or "".
 //
 // Claude reports its version as the process name, so the invoked path
 // decides. Codex installed through npm runs under node with a codex script.
+// Devin runs its own binary from a versioned path.
 func (p Proc) Agent() string {
 	for _, s := range []string{p.InvokedPath, p.Argv0} {
 		if path.Base(s) == "claude" {
@@ -47,6 +48,11 @@ func (p Proc) Agent() string {
 	for _, s := range []string{p.Script, p.Path, p.InvokedPath, p.Argv0} {
 		if path.Base(s) == "codex" {
 			return "codex"
+		}
+	}
+	for _, s := range []string{p.Path, p.Argv0, p.InvokedPath, p.Script} {
+		if path.Base(s) == "devin" {
+			return "devin"
 		}
 	}
 	return ""

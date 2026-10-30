@@ -42,7 +42,8 @@ func TestSendDeliversByFallback(t *testing.T) {
 func TestSendHoldsThenDeliverDelivers(t *testing.T) {
 	h := newHarness(t)
 	sender := h.pane("sender")
-	a, _ := h.agent("codex")
+	// Claude, because a busy Codex takes the message mid-turn.
+	a, _ := h.agent("claude")
 	a.Control("working")
 	code, out, _ := h.run(sender, "", "send", "--json", a.Label, "later")
 	if code != 0 || !strings.Contains(out, `"hold_reason":"busy"`) {
@@ -73,5 +74,11 @@ func TestReadyExitCodes(t *testing.T) {
 	code, out, _ = h.run(me, "", "ready", "--json", me.label)
 	if code != 2 || !strings.Contains(out, `"reason": "wrong_program"`) {
 		t.Fatalf("plain pane: %d %q", code, out)
+	}
+	c, _ := h.agent("codex")
+	c.Control("working")
+	code, out, _ = h.run(me, "", "ready", c.Label)
+	if code != 0 || strings.TrimSpace(out) != "empty: mid_turn" {
+		t.Fatalf("working codex: %d %q", code, out)
 	}
 }

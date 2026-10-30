@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"errors"
+	"flag"
 	"fmt"
 	"os"
 	"strings"
@@ -13,8 +14,9 @@ import (
 )
 
 // splitHost separates a "host-label:" prefix that names a Rex host. Block
-// and session IDs also contain a colon, so only a known host label or this
-// machine's own name counts. A remote label wins over this machine's name.
+// and session IDs also contain a colon, so only a known host label, this
+// machine's own name, or a DNS name counts. A remote label wins over this
+// machine's name.
 func splitHost(ctx context.Context, c rex.Client, target string) (host, rest string, err error) {
 	label, rest, ok := strings.Cut(target, ":")
 	if !ok || label == "block" || label == "session" {
@@ -38,6 +40,11 @@ func splitHost(ctx context.Context, c rex.Client, target string) (host, rest str
 	// machine name, so an address copied from their messages carries it.
 	if strings.EqualFold(label, localName()) {
 		return "", rest, nil
+	}
+	// A host this Rex has no label for can be named by its DNS name, as
+	// `roar install` takes it. No pane address has a dot before its colon.
+	if strings.Contains(label, ".") {
+		return label, rest, nil
 	}
 	return "", target, nil
 }
@@ -79,25 +86,32 @@ func sendRemote(ctx context.Context, env Env, e envelope.Envelope, files map[str
 	return remote.Result{}, lastErr
 }
 
-// cmdInstall copies this roar binary to a Rex host's ~/.local/bin, then
-// runs roar setup there.
+// cmdInstall copies this roar binary, or the --binary build for another
+// platform, to a Rex host's ~/.local/bin, then runs roar setup there.
 func cmdInstall(ctx context.Context, env Env, args []string) error {
-	if len(args) != 1 {
-		return usageErr("roar install <host-label>")
-	}
-	self, err := os.Executable()
+	fs := flag.NewFlagSet("install", flag.ContinueOnError)
+	path := fs.String("binary", "", "the roar build to copy")
+	pos, err := parse(fs, args)
 	if err != nil {
 		return err
 	}
-	bin, err := os.ReadFile(self)
+	if len(pos) != 1 {
+		return usageErr("roar install [--binary <path>] <host-label>")
+	}
+	if *path == "" {
+		if *path, err = os.Executable(); err != nil {
+			return err
+		}
+	}
+	bin, err := os.ReadFile(*path)
 	if err != nil {
 		return err
 	}
-	h := remoteHost(env, args[0])
+	h := remoteHost(env, pos[0])
 	if err := h.Install(ctx, bin); err != nil {
 		return err
 	}
-	fmt.Fprintf(env.Stdout, "installed at %s on %s\n", remote.DefaultBin, args[0])
+	fmt.Fprintf(env.Stdout, "installed at %s on %s\n", remote.DefaultBin, pos[0])
 	out, err := h.Setup(ctx)
 	if out != "" {
 		fmt.Fprintln(env.Stdout, out)

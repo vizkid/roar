@@ -67,6 +67,8 @@ func cmdReady(ctx context.Context, env Env, args []string) error {
 		if err := writeJSON(env, r); err != nil {
 			return err
 		}
+	} else if r.MidTurn() {
+		fmt.Fprintln(env.Stdout, "empty: mid_turn")
 	} else if r.Verdict == ready.Empty {
 		fmt.Fprintln(env.Stdout, "empty")
 	} else {

@@ -73,7 +73,7 @@ func (d *Deliverer) Attempt(ctx context.Context, id string) (Outcome, error) {
 		// user can still read the message with `roar inbox`.
 		return d.hold(c, r.Reason)
 	}
-	return d.typeMessage(ctx, c, r.PID, r.Agent)
+	return d.typeMessage(ctx, c, r)
 }
 
 func (d *Deliverer) hold(c *store.Claim, reason string) (Outcome, error) {
@@ -90,7 +90,8 @@ func (d *Deliverer) hold(c *store.Claim, reason string) (Outcome, error) {
 // waits for the agent to start a turn. Once text is pasted, any surprise
 // ends in unknown: the composer may now hold our text, and nothing may
 // type again until an operator settles it.
-func (d *Deliverer) typeMessage(ctx context.Context, c *store.Claim, pid int, agent string) (Outcome, error) {
+func (d *Deliverer) typeMessage(ctx context.Context, c *store.Claim, proof ready.Result) (Outcome, error) {
+	pid, agent := proof.PID, proof.Agent
 	m := c.Message()
 	to := m.Envelope.To
 	now := d.Now()
@@ -108,6 +109,9 @@ func (d *Deliverer) typeMessage(ctx context.Context, c *store.Claim, pid int, ag
 	if err := d.Rex.Paste(ctx, to.Session, to.Block, envelope.TerminalSafe(m.Render())); err != nil {
 		return unknown("paste_failed")
 	}
+	if proof.MidTurn() && !d.pasteShown(ctx, to.Session, to.Block, agent) {
+		return unknown("paste_not_seen")
+	}
 	if r := ready.Status(ctx, d.Rex, to.Session, to.Block, pid); r.Verdict != ready.Empty {
 		return unknown("changed_before_enter")
 	}
@@ -115,41 +119,12 @@ func (d *Deliverer) typeMessage(ctx context.Context, c *store.Claim, pid int, ag
 	if err := d.Rex.SendKey(ctx, to.Session, to.Block, "enter"); err != nil {
 		return unknown("enter_failed")
 	}
-	if !d.turnStarted(ctx, to.Session, to.Block, pid, agent, enterAt) {
+	submitProof := d.submitted(ctx, to.Session, to.Block, pid, agent, enterAt, proof.MidTurn())
+	if submitProof == "" {
 		return unknown("no_turn_started")
 	}
-	err = c.Move(store.Submitted, d.Now(), func(r *store.Record) { r.Proof = "rex_submit" })
+	err = c.Move(store.Submitted, d.Now(), func(r *store.Record) { r.Proof = submitProof })
 	return outcome(c.Message()), err
-}
-
-// turnStarted waits for a status report that proves Enter started a turn.
-func (d *Deliverer) turnStarted(ctx context.Context, session, block string, pid int, agent string, after time.Time) bool {
-	deadline := time.Now().Add(SubmitWait)
-	for time.Now().Before(deadline) {
-		if st, err := d.Rex.ProgramStatus(ctx, session, block); err == nil && turnEvidence(st, pid, agent, after) {
-			return true
-		}
-		select {
-		case <-ctx.Done():
-			return false
-		case <-time.After(100 * time.Millisecond):
-		}
-	}
-	return false
-}
-
-// turnEvidence accepts a report made after Enter by the same agent process
-// that shows a turn: working, or a fast turn already done or blocked. A
-// report from before Enter could be a turn that began on its own.
-func turnEvidence(st *rex.StatusRecord, pid int, agent string, after time.Time) bool {
-	if st == nil || st.Owner == nil || st.Owner.PID != pid || st.EffectiveApp != ready.App(agent) {
-		return false
-	}
-	switch st.State {
-	case "working", "done", "blocked":
-		return st.UpdatedAt.After(after)
-	}
-	return false
 }
 
 func outcome(m store.Message) Outcome {

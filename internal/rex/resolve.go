@@ -161,7 +161,7 @@ func named(ctx context.Context, c Client, session, pane string) ([]Block, error)
 // hinted lists the panes an agent name or a position word names.
 func hinted(ctx context.Context, c Client, session string, terms []Block, windows []Window, hint string) []Block {
 	var hits []Block
-	if hint == "claude" || hint == "codex" {
+	if hint == "claude" || hint == "codex" || hint == "devin" {
 		for _, b := range terms {
 			if p, err := c.Process(ctx, session, b.ID); err == nil && p.Foreground != nil && p.Foreground.Agent() == hint {
 				hits = append(hits, b)
@@ -197,21 +197,25 @@ func terminals(ctx context.Context, c Client, session string) ([]Block, error) {
 // choose picks the only pane, else the only agent pane among them.
 func choose(ctx context.Context, c Client, session string, blocks []Block, what string) (string, error) {
 	if len(blocks) <= 1 {
-		return one(blocks, what)
+		return one(blocks, what, nil)
 	}
 	var agents []Block
+	runs := map[string]string{}
 	for _, b := range blocks {
 		if p, err := c.Process(ctx, session, b.ID); err == nil && p.Foreground != nil && p.Foreground.Agent() != "" {
 			agents = append(agents, b)
+			runs[b.ID] = p.Foreground.Agent()
 		}
 	}
 	if len(agents) == 1 {
 		return agents[0].ID, nil
 	}
-	return one(blocks, what)
+	return one(blocks, what, runs)
 }
 
-func one(blocks []Block, what string) (string, error) {
+// one returns the only block, or lists the candidates with the agent each
+// runs: Rex labels every new pane "shell", so labels alone rarely differ.
+func one(blocks []Block, what string, runs map[string]string) (string, error) {
 	switch len(blocks) {
 	case 1:
 		return blocks[0].ID, nil
@@ -220,7 +224,11 @@ func one(blocks []Block, what string) (string, error) {
 	}
 	list := make([]string, len(blocks))
 	for i, b := range blocks {
-		list[i] = fmt.Sprintf("%s (%s)", b.ID, b.Label)
+		desc := b.Label
+		if runs[b.ID] != "" {
+			desc += ", " + runs[b.ID]
+		}
+		list[i] = fmt.Sprintf("%s (%s)", b.ID, desc)
 	}
 	return "", fmt.Errorf("%w: choose %s: %s", ErrAmbiguous, what, strings.Join(list, ", "))
 }

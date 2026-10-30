@@ -6,9 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-
 	"fmt"
-	"runtime"
 	"strings"
 
 	"github.com/vizkid/roar/internal/envelope"
@@ -98,35 +96,6 @@ func (h Host) Status(ctx context.Context, ids ...string) ([]StatusRow, error) {
 		rows = append(rows, r)
 	}
 	return rows, nil
-}
-
-// installScript decodes the binary from stdin into a fresh temporary file
-// (mktemp creates it exclusively, so a planted symlink is never followed),
-// then renames it over roar.
-const installScript = `stty -echo; set -e; d="$HOME/.local/bin"; mkdir -p "$d"; ` +
-	`t=$(mktemp "$d/.roar.XXXXXX"); trap 'rm -f "$t"' EXIT; base64 -d > "$t"; ` +
-	`chmod 755 "$t"; mv -f "$t" "$d/roar"; trap - EXIT; echo ROAR-INSTALLED`
-
-// Install copies this binary to DefaultBin on the host. The host must have
-// the same operating system and architecture.
-func (h Host) Install(ctx context.Context, binary []byte) error {
-	code, screen, err := h.run(ctx, []string{"/usr/bin/uname", "-sm"}, nil, false)
-	if err != nil {
-		return err
-	}
-	want := map[string]string{"darwin": "Darwin", "linux": "Linux"}[runtime.GOOS] + " " +
-		map[string]string{"arm64": "arm64", "amd64": "x86_64"}[runtime.GOARCH]
-	if code != 0 || !strings.Contains(screen, want) {
-		return fmt.Errorf("%w: host is %q, this binary is %q", ErrRefused, strings.TrimSpace(screen), want)
-	}
-	code, screen, err = h.run(ctx, []string{"/bin/sh", "-c", installScript}, binary, false)
-	if err != nil {
-		return err
-	}
-	if code != 0 || !strings.Contains(screen, "ROAR-INSTALLED") {
-		return fmt.Errorf("%w: install exited %d: %s", ErrRefused, code, lastError(screen, code))
-	}
-	return nil
 }
 
 // Setup runs `roar setup` on the host and returns what it printed.

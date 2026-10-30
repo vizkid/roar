@@ -44,11 +44,34 @@ func Status(ctx context.Context, c rex.Client, session, block string, wantPID in
 	if time.Since(start) > Freshness {
 		return result(Wait, "stale_probe")
 	}
-	r := decideProcessAndStatus(s, wantPID)
-	if r.Verdict == Empty {
-		r.Reason = "at_rest"
+	return decideProcessAndStatus(s, wantPID)
+}
+
+// Composer reads the screen and says what agent's composer holds: "empty",
+// "draft", or "" when the screen shows no composer.
+func Composer(ctx context.Context, c rex.Client, session, block, agent string) string {
+	visible, err := c.CursorVisible(ctx, session, block)
+	if err != nil || !visible {
+		return ""
 	}
-	return r
+	rows, err := c.Rows(ctx, session, block)
+	if err != nil {
+		return ""
+	}
+	vt, err := c.ScreenVT(ctx, session, block)
+	if err != nil {
+		return ""
+	}
+	sc, err := parseScreen(vt, rows)
+	switch {
+	case err != nil:
+		return ""
+	case composer(sc, agent) == "":
+		return "empty"
+	case drafted(sc, agent):
+		return "draft"
+	}
+	return ""
 }
 
 func snapshot(ctx context.Context, c rex.Client, session, block string) (Snapshot, error) {

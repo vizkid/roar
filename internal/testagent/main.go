@@ -1,5 +1,5 @@
 // Command testagent imitates an agent's composer for Roar's tests. Built as
-// "claude" or "codex", it draws that agent's composer and reports program
+// "claude", "codex" or "devin", it draws that agent's composer and reports program
 // status (OSC 7501) like the real agent, so fallback tests can run in real
 // Rex panes without model calls.
 //
@@ -9,6 +9,10 @@
 //	TESTAGENT_CTL       control file, polled: idle, working, done, blocked, clear, exit
 //	TESTAGENT_ON_PASTE  state to enter as soon as a paste arrives (simulates a race)
 //	TESTAGENT_WORK_MS   how long a submitted turn stays working (default 300)
+//	TESTAGENT_DROP_PASTE  ignore pastes, as if they never reached the composer
+//
+// Built as codex or devin, Enter mid-turn adds the prompt to the running
+// turn and sends no new status report, as real Codex does.
 package main
 
 import (
@@ -28,15 +32,20 @@ type agent struct {
 	mu     sync.Mutex
 	marker string
 	app    string
+	hint   string // the placeholder, with the agent's own attributes
 	state  string
 	draft  []rune
 	hidden bool
+	sent   string // the state last reported, so a redraw does not report again
 }
 
 func main() {
-	a := &agent{marker: "❯ ", app: "claude-code", state: "idle"}
-	if filepath.Base(os.Args[0]) == "codex" {
+	a := &agent{marker: "❯ ", app: "claude-code", state: "idle", hint: "\x1b[2mTry something\x1b[0m"}
+	switch filepath.Base(os.Args[0]) {
+	case "codex":
 		a.marker, a.app = "› ", "codex"
+	case "devin": // Devin draws its placeholder grey, not dim
+		a.marker, a.app, a.hint = "❭ ", "devin", "\x1b[38;2;124;124;124mAsk Devin\x1b[0m"
 	}
 	old, err := term.MakeRaw(0)
 	if err != nil {
@@ -71,23 +80,27 @@ func (a *agent) redrawLocked() {
 		rows = 24
 	}
 	rule := strings.Repeat("─", 40)
+	lines := strings.Split(string(a.draft), "\n")
+	top := rows - len(lines) // the composer grows upward, as real ones do
 	var b strings.Builder
 	b.WriteString("\x1b[2J\x1b[H")
-	fmt.Fprintf(&b, "\x1b[%d;1H%s", rows-2, rule)
-	fmt.Fprintf(&b, "\x1b[%d;1H%s", rows-1, a.marker)
+	fmt.Fprintf(&b, "\x1b[%d;1H%s", top-1, rule)
+	fmt.Fprintf(&b, "\x1b[%d;1H%s", top, a.marker)
 	if len(a.draft) == 0 {
-		b.WriteString("\x1b[2mTry something\x1b[0m")
+		b.WriteString(a.hint)
 	} else {
 		b.WriteString(strings.ReplaceAll(string(a.draft), "\n", "\r\n  "))
 	}
 	fmt.Fprintf(&b, "\x1b[%d;1H%s", rows, rule)
-	fmt.Fprintf(&b, "\x1b]7501;state=%s:app=%s\x1b\\", a.state, a.app)
+	if a.sent != a.state {
+		fmt.Fprintf(&b, "\x1b]7501;state=%s:app=%s\x1b\\", a.state, a.app)
+		a.sent = a.state
+	}
 	if a.hidden {
 		b.WriteString("\x1b[?25l")
 	} else {
-		lines := strings.Split(string(a.draft), "\n")
 		last := []rune(lines[len(lines)-1])
-		fmt.Fprintf(&b, "\x1b[?25h\x1b[%d;%dH", rows-1+len(lines)-1, 3+len(last))
+		fmt.Fprintf(&b, "\x1b[?25h\x1b[%d;%dH", rows-1, 3+len(last))
 	}
 	os.Stdout.WriteString(b.String())
 }
@@ -114,7 +127,9 @@ func (a *agent) consume(in []byte) []byte {
 			if i < 0 {
 				return []byte(s)
 			}
-			a.insert(s[len(start):i])
+			if os.Getenv("TESTAGENT_DROP_PASTE") == "" {
+				a.insert(s[len(start):i])
+			}
 			if p := os.Getenv("TESTAGENT_ON_PASTE"); p != "" {
 				a.setState(p)
 			}
@@ -149,6 +164,7 @@ func (a *agent) submit() {
 	a.mu.Lock()
 	text := string(a.draft)
 	a.draft = nil
+	steer := a.app != "claude-code" && a.state == "working"
 	a.mu.Unlock()
 	if text == "" {
 		return
@@ -159,6 +175,10 @@ func (a *agent) submit() {
 			json.NewEncoder(f).Encode(map[string]string{"text": text})
 			f.Close()
 		}
+	}
+	if steer {
+		a.redraw()
+		return
 	}
 	a.setState("working")
 	ms, _ := strconv.Atoi(os.Getenv("TESTAGENT_WORK_MS"))

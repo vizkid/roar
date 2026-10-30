@@ -160,6 +160,7 @@ func TestResolveAgentAndPositionHints(t *testing.T) {
 	if _, err := rex.Resolve(ctx(t), c, "claude@"+label); !errors.Is(err, rex.ErrNoTarget) {
 		t.Errorf("no claude pane: %v", err)
 	}
+
 }
 
 func TestPeer(t *testing.T) {
@@ -186,5 +187,52 @@ func TestPeer(t *testing.T) {
 	}
 	if _, err := rex.Peer(ctx(t), c, session, agent); !errors.Is(err, rex.ErrAmbiguous) {
 		t.Errorf("two shells beside the agent: %v", err)
+	}
+}
+
+// Rex labels every new pane "shell", so a list of labels alone cannot tell
+// two agent panes apart. Each candidate names its agent.
+func TestAmbiguousListsAgents(t *testing.T) {
+	c := rextest.Require(t)
+	fake := filepath.Join(t.TempDir(), "codex")
+	if err := os.WriteFile(fake, []byte("#!/usr/bin/python3\nimport time\ntime.sleep(300)\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	label := rextest.Label("two")
+	session, first := rextest.Session(t, c, label, fake)
+	rextest.Split(t, c, session, first, "", fake)
+	time.Sleep(500 * time.Millisecond)
+	_, err := rex.Resolve(ctx(t), c, label)
+	if !errors.Is(err, rex.ErrAmbiguous) || strings.Count(err.Error(), "codex") != 2 {
+		t.Fatalf("got %v", err)
+	}
+}
+
+// Devin runs as its own binary under a versioned path.
+func TestAgentNames(t *testing.T) {
+	for want, p := range map[string]rex.Proc{
+		"devin":  {Name: "devin", Path: "/u/.local/share/devin/cli/_versions/3000.11.92/bin/devin", Argv0: "devin"},
+		"claude": {Name: "2.1.311", InvokedPath: "/u/.local/bin/claude"},
+		"codex":  {Name: "node", Path: "/usr/bin/node", Script: "/x/bin/codex"},
+		"":       {Name: "zsh", Path: "/bin/zsh", Argv0: "-zsh"},
+	} {
+		if got := p.Agent(); got != want {
+			t.Errorf("%+v: got %q, want %q", p, got, want)
+		}
+	}
+}
+
+func TestResolveDevinHint(t *testing.T) {
+	c := rextest.Require(t)
+	fake := filepath.Join(t.TempDir(), "devin")
+	if err := os.WriteFile(fake, []byte("#!/usr/bin/python3\nimport time\ntime.sleep(300)\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	label := rextest.Label("devin")
+	session, shell := rextest.Session(t, c, label, "sleep", "300")
+	devin := rextest.Split(t, c, session, shell, "", fake)
+	time.Sleep(500 * time.Millisecond)
+	if a, err := rex.Resolve(ctx(t), c, "devin@"+label); err != nil || a.Block != devin {
+		t.Fatalf("devin hint: %+v %v, want %s", a.Block, err, devin)
 	}
 }

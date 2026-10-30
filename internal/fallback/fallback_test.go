@@ -66,7 +66,7 @@ func want(t *testing.T, got Outcome, state store.State, reason string) {
 
 func TestSubmitsIntoEmptyComposer(t *testing.T) {
 	f := setup(t)
-	for _, kind := range []string{"claude", "codex"} {
+	for _, kind := range []string{"claude", "codex", "devin"} {
 		a := agenttest.Start(t, f.rex, f.bin, kind)
 		e := f.queue(a.Session, a.Block, "first line\nsecond line")
 		want(t, f.attempt(e.ID), store.Submitted, "")
@@ -98,10 +98,12 @@ func TestHoldsOnDraftThenDelivers(t *testing.T) {
 
 func TestHoldsWhileBusyOrModal(t *testing.T) {
 	f := setup(t)
-	a := agenttest.Start(t, f.rex, f.bin, "codex")
+	a := agenttest.Start(t, f.rex, f.bin, "claude")
 	e := f.queue(a.Session, a.Block, "hello")
 	a.Control("working")
 	want(t, f.attempt(e.ID), store.Queued, "busy")
+	a = agenttest.Start(t, f.rex, f.bin, "codex")
+	e = f.queue(a.Session, a.Block, "hello")
 	a.Control("blocked")
 	want(t, f.attempt(e.ID), store.Queued, "modal")
 	if got := a.Submitted(); len(got) != 0 {

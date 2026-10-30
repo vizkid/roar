@@ -7,11 +7,19 @@ import (
 	"strings"
 )
 
-// cell is one printed character and whether it was drawn dim (SGR 2).
-// Both agents draw placeholder text dim and typed text normal.
+// cell is one printed character, whether it was drawn dim (SGR 2), and
+// its foreground colour as SGR parameters ("" for the default). Claude and
+// Codex draw placeholder text dim; Devin draws it in one grey.
 type cell struct {
 	r   rune
 	dim bool
+	fg  string
+}
+
+// attrs are the SGR attributes the parser carries from cell to cell.
+type attrs struct {
+	dim bool
+	fg  string
 }
 
 type row struct{ cells []cell }
@@ -48,10 +56,10 @@ func parseScreen(vt string, rows int) (screen, error) {
 	if rows > 0 && len(lines) > rows {
 		lines = lines[len(lines)-rows:]
 	}
-	dim := false
+	var at attrs
 	for _, l := range lines {
 		var r row
-		r.cells, dim = parseLine(l, dim)
+		r.cells, at = parseLine(l, at)
 		sc.rows = append(sc.rows, r)
 	}
 	return sc, nil
@@ -59,12 +67,12 @@ func parseScreen(vt string, rows int) (screen, error) {
 
 // parseLine interprets the few sequences Rex emits in VT output: SGR for
 // attributes and CUF for runs of blank cells. Other sequences are skipped.
-func parseLine(l string, dim bool) ([]cell, bool) {
+func parseLine(l string, at attrs) ([]cell, attrs) {
 	var cells []cell
 	rs := []rune(l)
 	for i := 0; i < len(rs); i++ {
 		if rs[i] != 0x1b {
-			cells = append(cells, cell{rs[i], dim})
+			cells = append(cells, cell{rs[i], at.dim, at.fg})
 			continue
 		}
 		if i+1 >= len(rs) {
@@ -77,19 +85,19 @@ func parseLine(l string, dim bool) ([]cell, bool) {
 				j++
 			}
 			if j >= len(rs) {
-				return cells, dim
+				return cells, at
 			}
 			params := string(rs[i+2 : j])
 			switch rs[j] {
 			case 'm':
-				dim = applySGR(params, dim)
+				at = applySGR(params, at)
 			case 'C':
 				n, err := strconv.Atoi(params)
 				if err != nil || n < 1 {
 					n = 1
 				}
 				for range n {
-					cells = append(cells, cell{' ', false})
+					cells = append(cells, cell{' ', false, ""})
 				}
 			}
 			i = j
@@ -106,33 +114,44 @@ func parseLine(l string, dim bool) ([]cell, bool) {
 			i++
 		}
 	}
-	return cells, dim
+	return cells, at
 }
 
-func applySGR(params string, dim bool) bool {
+func applySGR(params string, at attrs) attrs {
 	if params == "" {
-		return false
+		return attrs{}
 	}
 	parts := strings.Split(params, ";")
 	for k := 0; k < len(parts); k++ {
-		switch parts[k] {
+		switch p := parts[k]; p {
 		case "0":
-			dim = false
+			at = attrs{}
 		case "2":
-			dim = true
+			at.dim = true
 		case "22":
-			dim = false
+			at.dim = false
+		case "39":
+			at.fg = ""
 		case "38", "48", "58":
 			// Extended colour: skip its arguments so "2" in "38;2;r;g;b" is
-			// not read as dim.
+			// not read as dim. Keep the foreground's.
+			n := 0
 			if k+1 < len(parts) && parts[k+1] == "5" {
-				k += 2
+				n = 2
 			} else if k+1 < len(parts) && parts[k+1] == "2" {
-				k += 4
+				n = 4
+			}
+			if p == "38" && k+n < len(parts) {
+				at.fg = strings.Join(parts[k+1:k+1+n], ";")
+			}
+			k += n
+		default:
+			if len(p) == 2 && (p[0] == '3' || p[0] == '9') && p[1] >= '0' && p[1] <= '7' {
+				at.fg = p
 			}
 		}
 	}
-	return dim
+	return at
 }
 
 // isRule reports a horizontal rule row (Claude draws them around its composer).
@@ -155,11 +174,18 @@ func (r row) blank() bool {
 	return strings.TrimSpace(strings.ReplaceAll(r.text(), " ", " ")) == ""
 }
 
-// typedText reports whether any cell from index start on is visible and not dim.
-func (r row) typedText(start int) bool {
+// placeholderFG is the foreground an agent draws placeholder text in, for
+// an agent that does not use dim. Another colour reads as typed text, so a
+// changed theme makes Roar wait, never type over a draft.
+var placeholderFG = map[string]string{"devin": "2;124;124;124"}
+
+// typedText reports whether any cell from index start on is visible and
+// not the agent's placeholder.
+func (r row) typedText(start int, agent string) bool {
+	ph := placeholderFG[agent]
 	for i := start; i < len(r.cells); i++ {
 		c := r.cells[i]
-		if c.r != ' ' && c.r != ' ' && !c.dim {
+		if c.r != ' ' && c.r != ' ' && !c.dim && (ph == "" || c.fg != ph) {
 			return true
 		}
 	}

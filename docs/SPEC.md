@@ -52,9 +52,11 @@ Implementation language: Go.
 | `roar deliver [target...] [--watch [--until-idle]]` | Runs fallback delivery for queued messages whose recipients have no native adapter. `--watch` follows `rex events` and retries on status changes. `--until-idle` exits once nothing is held; Roar starts it itself. | 0, 2 |
 | `roar enqueue --sha256 <digest>` | Plumbing for cross-host sends: reads a forwarded envelope from stdin, stores it, then runs one delivery pass. | 0 stored or duplicate, 2 refused, 6 digest mismatch |
 | `roar setup` | Adds Roar to every Claude and Codex config root on this host. See [Setup](#setup). Safe to run again. | 0, 2 |
-| `roar install <host>` | Copies this binary to another Rex host's `~/.local/bin`, then runs `roar setup` there. | 0, 2 |
+| `roar install [--binary <path>] <host>` | Copies this binary, or the one `--binary` names, to another Rex host's `~/.local/bin`, then runs `roar setup` there. | 0, 2 |
 | `roar mcp` | Claude adapter. Claude starts it; operators never run it. | |
 | `roar hook codex` | Codex `SessionStart` hook. Records which thread the pane shows. Codex runs it; operators never do. | always 0 |
+
+`-h` or `--help` after any command prints the usage and exits 0. It is never read as a target or host.
 
 Exit code 2 always comes with one line on stderr that names the reason, for example `ambiguous_target`, `no_roar_on_host`, or `limit_exceeded`.
 
@@ -66,13 +68,13 @@ A recipient is one Rex block: `(server, session_id, block_id)`.
 - Store the server as its `host_id` plus endpoint URL from `rex whoami --json`. Host labels are local nicknames and differ between hosts.
 - Store the server's `instance_id` too. A changed `instance_id` means the server restarted, and stored block IDs are invalid.
 - A target is a full block ID, `[host-label:]session-label[/pane]`, `[host-label:]pane@session-label`, or `[host-label:]name`. `pane@session` is the same as `session/pane`; it reads like the tab name people see. `roar send` resolves the target once and stores IDs.
-- A `host-label:` prefix names a host from `rex hosts`. Rex gives the local host an empty label, so this machine's own name (the host name without its domain, any case) also counts and means local. An address copied from another host's message then works when sent back from this host. A remote label wins over the machine's name.
+- A `host-label:` prefix names a host from `rex hosts`. Rex gives the local host an empty label, so this machine's own name (the host name without its domain, any case) also counts and means local. An address copied from another host's message then works when sent back from this host. A remote label wins over the machine's name. A prefix that is no known label but contains a dot, such as `colonelk-rex.tail4f2cce.ts.net:`, is a DNS name and is used as the endpoint itself, as `roar install` does. No other target contains a colon, so this changes only targets that would fail.
 - A pane is a pane label, a window label, or the last six or more characters of a block ID. A pane label wins over a window label. A window label names every terminal pane in that window.
 - When no label matches, a pane can be a hint instead. A label always wins over a hint, so an operator can still name a pane `left` or `codex`.
 
 | Hint | Names |
 | --- | --- |
-| `claude`, `codex` | The panes whose foreground program is that agent, by the same test the readiness proof uses |
+| `claude`, `codex`, `devin` | The panes whose foreground program is that agent, by the same test the readiness proof uses |
 | `left`, `right`, `top`, `bottom` | The panes on that edge of their window's tiled layout |
 | `top-left`, `top-right`, `bottom-left`, `bottom-right` | The panes on both edges |
 | `peer`, alone | The other panes in the sender's own window. It takes no session or host, because it is relative to the sender. With two side-by-side panes it names the other one. |
@@ -80,7 +82,7 @@ A recipient is one Rex block: `(server, session_id, block_id)`.
   Positions come from the layout rectangles `rex window ls` reports, so they match what the operator sees. In two side-by-side panes, `left` and `right` each name one pane and `top` names both. A hint applies in every window of the session; a session with several tabs can make it ambiguous.
   Example: a session `roar` with Claude on the left and Codex on the right. `codex@roar` and `right@roar` both name the Codex pane.
 - A name that matches no session label is looked up as a window or pane label in every session. People see window labels as Rex tab names, not session labels, so they and their agents address by them. The name must occur in one session only; otherwise the send is refused with `ambiguous_target` and lists each `name@session`.
-- When a target names several panes, the only agent pane wins, by foreground process. Otherwise the send is refused with `ambiguous_target` and the candidates are listed.
+- When a target names several panes, the only agent pane wins, by foreground process. Otherwise the send is refused with `ambiguous_target` and the candidates are listed. Each candidate shows its block ID, its pane label and the agent it runs, because Rex labels every new pane `shell` and the label alone does not tell them apart.
 
 ### Sender identity
 
@@ -177,7 +179,7 @@ A message is found only in `box/<its recipient>/<its ID>` under the store. An in
 ## Agent activity from Rex
 
 Rex tracks each agent's turn state through its program status protocol (OSC 7501).
-Claude Code and Codex both report it natively. No hook setup is needed.
+Claude Code, Codex and Devin CLI all report it natively. No hook setup is needed. Devin reports app `devin` and a `msg` such as `Thinking` or `Devin finished`.
 Roar reads it with the block's `program_status` method and watches `program_status_changed` in `rex events`.
 
 | Status | Meaning for Roar |
@@ -210,7 +212,7 @@ Status alone cannot prove an empty composer. A typed draft leaves the status `id
 | --- | --- |
 | A native adapter holds `adapters/<block>.lock` | Native. Only the adapter delivers. |
 | The pane has a live [Codex binding](#binding-1) and its thread is loaded on the Codex daemon | Native, by whichever command holds the message lock |
-| No native adapter, and the readiness proof says empty | Fallback, by whichever `roar send`, `roar enqueue`, or `roar deliver` holds the message lock |
+| No native adapter, and the readiness proof says empty (Claude or Codex at rest, or Codex mid-turn) | Fallback, by whichever `roar send`, `roar enqueue`, or `roar deliver` holds the message lock |
 | No native adapter, and the proof says busy, draft, modal, or unknown | Hold, and start the [watcher](#the-watcher) if none runs. It retries when the pane comes to rest. |
 | The pane runs something that is not an agent, such as a shell | Hold with `wrong_program`. Roar never types into it; an agent may start there later, and a person can still read the message with `roar inbox`. |
 | The block is gone or its program exited | Expire with `dead_pane` |
@@ -462,42 +464,43 @@ Codex delivery runs in whichever command holds the message lock: `roar send`, `r
 All readings are fresh, inside a 2-second window. The first verdict wins.
 
 1. **Refuse, dead pane.** A Rex call returns not found (exit 3), `process.last_exit` is set, or there is no foreground process.
-2. **Refuse, wrong program.** The foreground process is not `claude` (by `invoked_path` or `argv0`) or `codex` (by `script` or `path`), or its PID differs from the PID recorded when the message was stored.
-3. **Unknown, wait.** There is no `program_status` record, its owner's PID or name differs from the foreground process, or its app is not `claude-code` or `codex`. This covers startup, the folder-trust dialog, and a stale record left by a killed agent.
-4. **Status.** `working` means busy, wait. `blocked`, `error`, or any other value means unknown, wait.
-5. **Composer, for `idle` or `done` only.** Read the screen with `format` (VT, `extra_cursor`):
+2. **Refuse, wrong program.** The foreground process is not `claude` (by `invoked_path` or `argv0`) or `codex` (by `script` or `path`) or `devin` (by `path` or `argv0`; Devin runs from `~/.local/share/devin/cli/_versions/<version>/bin/devin`), or its PID differs from the PID recorded when the message was stored.
+3. **Unknown, wait.** There is no `program_status` record, its owner's PID or name differs from the foreground process, or its app is not `claude-code`, `codex` or `devin`. This covers startup, the folder-trust dialog (Devin's too), and a stale record left by a killed agent.
+4. **Status.** For Claude, `working` means busy, wait. For Codex and Devin, `working` goes on to step 5: an empty composer then gives verdict empty with reason `mid_turn`. `blocked`, `error`, or any other value means unknown, wait.
+5. **Composer, for `idle` or `done`, and for a Codex or Devin `working`.** Read the screen with `format` (VT, `extra_cursor`):
    - a hidden cursor means unknown, wait;
-   - a cursor row that does not start with `❯` or `›` means unknown, wait;
+   - a cursor row that does not start with `❯` (Claude), `›` (Codex) or `❭` (Devin) means unknown, wait;
    - a cursor column other than 3 (1-based) means draft, wait;
-   - text after the marker, or on continuation rows, that is not dim (SGR 2) means draft, wait. Dim text is placeholder text.
+   - text after the marker, or on continuation rows, that is not placeholder text means draft, wait. Claude and Codex draw placeholder text dim (SGR 2). Devin draws it in the foreground colour `38;2;124;124;124` and typed text in the default colour. Only that exact grey counts, and only for Devin: if a theme changes it, the placeholder reads as a draft and Roar waits.
    - Otherwise the composer is empty.
 
 Roar never reads composer text to decide whose draft it is. It asks only whether any non-placeholder text exists.
 
-The status check comes first because a mid-turn composer looks empty. The dim-text check comes after the cursor check because a draft with its cursor moved home passes the cursor check.
+The status check comes first because a mid-turn composer looks empty. Claude queues input typed mid-turn, so Roar waits for rest. Codex and Devin keep their composers live during a turn, and Enter adds the input to the running turn, like a native steer. Their turns can run for tens of minutes, so waiting for rest held most messages (Evidence). The dim-text check comes after the cursor check because a draft with its cursor moved home passes the cursor check.
 
 ### Typing sequence
 
 1. Take the message lock, then the pane lock (`panes/<block>.lock`). If another attempt holds the pane, hold the message as `pane_busy`. Run the proof. Record the foreground PID.
 2. Set the message to `submitting`.
 3. Paste the rendered message (header and body) with `block.event` `paste`, in pieces of at most 32 KiB. Rex brackets each piece, so newlines stay in the draft. `rex send` writes raw bytes and is not used for the body. Before pasting, every control character except newline and tab becomes a visible symbol (ESC shows as `␛`), and a carriage return becomes a newline. So a body cannot end the bracketed paste with `ESC [201~` and press keys.
-4. Run steps 1 to 4 of the proof again, bound to the recorded PID, within the same 2-second freshness bound. The composer now holds our text, so step 5 does not apply.
+4. Run steps 1 to 4 of the proof again, bound to the recorded PID, within the same 2-second freshness bound. The composer now holds our text, so step 5 does not apply. For a `mid_turn` attempt, first wait up to 2 seconds for the composer row to show non-placeholder text. If it never does, set `unknown` with `paste_not_seen` and send no Enter.
 5. Send `enter` with `rex send-key`.
 6. Wait up to 5 seconds for a report made after Enter, by the same process with the agent's app, in state `working`, `done` or `blocked`. A fast turn can go from `working` to `done` between two readings, so `done` counts. A `working` report from before Enter does not: that turn may have begun on its own. If one arrives, set `submitted` with proof `rex_submit`. Even then the report cannot prove which input started the turn.
+   For a `mid_turn` attempt the turn is already running, so the agent may send no new report. Codex sends none; Devin reports `working` again (`Thinking`). There an empty composer within the same 5 seconds also counts, while the same process still reports `working` or `done`. Set `submitted` with proof `rex_steer`. The text left the composer, and the agent took it into the turn.
 
 Each proof outcome has a reason that `roar ready` and `roar status` show:
 
 | Verdict | Reasons |
 | --- | --- |
-| empty | `empty` |
+| empty | `empty`, `mid_turn` (Codex and Devin) |
 | wait | `busy`, `modal`, `no_status`, `stale_status`, `foreign_status`, `cursor_hidden`, `no_marker`, `no_cursor`, `draft`, `probe_failed`, `stale_probe` |
 | refuse | `dead_pane`, `wrong_program`, `owner_changed` |
 
 A message can also be held before the proof runs: `native_adapter` (a Claude channel owns the pane) and `pane_busy` (another attempt holds the pane lock).
 
-The unknown reasons are `paste_failed`, `changed_before_enter`, `enter_failed`, `no_turn_started`, and `interrupted_while_typing`.
+The unknown reasons are `paste_failed`, `paste_not_seen`, `changed_before_enter`, `enter_failed`, `no_turn_started`, and `interrupted_while_typing`.
 
-The watcher follows `rex events --all`, which is the only server-wide stream that carries block events, and retries a pane's oldest held message on `program_status_changed`, `process_changed`, or `child_exited`. It also sweeps every held message every 30 seconds, for events it missed. It delivers one message per pane per pass, because a delivered message starts a turn and the next would only be held as busy. To find held messages it reads only each message's `state.json`, not the envelope.
+The watcher follows `rex events --all`, which is the only server-wide stream that carries block events, and retries a pane's oldest held message on `program_status_changed`, `process_changed`, or `child_exited`. It also sweeps every held message every 30 seconds, for events it missed, and once 2 seconds after each (re)connect of the stream. Rex sends nothing when the stream connects, so without that catch-up sweep a pane that came to rest between the first sweep and the connection waited up to 30 seconds. It delivers one message per pane per pass, because a delivered message starts a turn and the next would only be held as busy. To find held messages it reads only each message's `state.json`, not the envelope.
 
 If anything fails or changes after step 3, stop without Enter and set `unknown`. The pasted text may now sit in the composer as a draft. Roar does not try to clear it, because it cannot prove that the draft is its own.
 
@@ -547,7 +550,7 @@ Rules:
 - `roar status` for a message held on another host runs `roar status --porcelain <id>` there the same way. Each line reads `ROAR-STATUS <id> <state> <detail> <proof> <boundary>`, with `-` for an empty field.
 - A reply goes back through the endpoint stored in the original envelope's `from` address.
 
-`roar install <host-label>` copies the running binary to `$HOME/.local/bin/roar` on a host with the same operating system and architecture. It streams base64 to `base64 -d` through the terminal in canonical mode, with echo off, in 76-character lines.
+`roar install <host-label>` copies the running binary to `$HOME/.local/bin/roar` on a host with the same operating system and architecture. `--binary <path>` copies another build instead, so a Mac can provision a Linux host. Roar reads the operating system and architecture from the binary's own Mach-O or ELF header, not from the running process, and compares them with `uname -sm` on the host. On a mismatch it refuses and prints the `GOOS=… GOARCH=… go build` command that makes the right binary. It streams base64 to `base64 -d` through the terminal in canonical mode, with echo off, in 76-character lines.
 
 Fallback typing always runs on the recipient's host, against its local Rex server.
 
@@ -610,6 +613,11 @@ These drive the tests. Each one is covered; the test names are listed after the 
 25. A request reaches Claude only on its own Claude's record of rest, one request per report. A fallback submit counts only on a report made after Enter by the same agent showing a turn.
 26. Typed delivery shows control characters as symbols. Sender fields and attachment names with control characters are refused. Attachments and the message count fall under host limits. A store entry outside its own box or ID is not loaded. Setup refuses a hook path with control characters. The install writes through `mktemp`. A remote `$HOME/` path is literal. A Codex socket must be a user-owned socket in a private directory.
 16. A real Claude and a real Codex that receive a request answer it with `roar send --reply`.
+28. Typed delivery into a Codex or Devin pane that reports `working` with an empty composer reaches `submitted` with proof `rex_steer`, and `roar ready` gives `empty` with reason `mid_turn`. A Claude pane that reports `working` is still held as `busy`. A paste that never shows in the composer leaves `unknown` with `paste_not_seen` and sends no Enter.
+29. `roar install` checks the header of the binary it copies. `--binary` copies the named build. A mismatch is refused with the build command. `-h` or `--help` after any command prints the usage.
+30. An unknown host prefix that contains a dot is used as the endpoint.
+31. An ambiguous pane list names each candidate's agent.
+32. Devin CLI is an agent: `devin@session` names its pane, an empty `❭` composer at rest is empty, a draft (also with the cursor home) waits, and a working Devin with an empty composer takes the message mid-turn. Only Devin's own grey is placeholder text.
 27. A send that holds a typed message starts a watcher, unless one runs. The watcher delivers the message when the pane comes to rest, without another command, then exits. A watcher started while another runs exits at once. A watcher exits once no queued message lacks a native adapter.
 
 | Criteria | Tests |
@@ -637,6 +645,11 @@ These drive the tests. Each one is covered; the test names are listed after the 
 | 25 | `TestClaudeStatus`, `TestRequestsReleaseOneAtATime`, `TestRequestWaitsForRest`, `TestTurnEvidence` |
 | 26 | `TestTerminalSafe`, `TestValidate`, `TestHeaderCannotBeForged`, `TestLimitsCountAttachmentsAndMessages`, `TestGetChecksWhereTheMessageLives`, `TestHookCommandQuoting`, `TestInstallScriptIgnoresPlantedSymlink`, `TestRoarCommandKeepsHomePathLiteral`, `TestDialChecksTheSocketDirectory` |
 | 17 | `TestDeliveryClearsEarlierReason` (the side-thread case no longer applies: delivery reads the bound thread's own status) |
+| 28 | `TestComposerStates`, `TestDrafted`, `TestSteersIntoBusyAgent`, `TestHoldsWhileBusyOrModal`, `TestPasteNotSeenLeavesUnknown`, `TestReadyExitCodes`, `TestLiveCodexMidTurn` |
+| 29 | `TestBinaryPlatform`, `TestInstallRefusesWrongPlatform`, `TestHelpAfterCommand` |
+| 30 | `TestDottedHostPrefixIsEndpoint` |
+| 31 | `TestAmbiguousListsAgents` |
+| 32 | `TestComposerStates`, `TestDrafted`, `TestDevinPlaceholderColour`, `TestAgentNames`, `TestResolveDevinHint`, `TestSubmitsIntoEmptyComposer`, `TestSteersIntoBusyAgent` |
 | 27 | `TestSendStartsWatcherThatDeliversAndExits`, `TestWatchUntilIdleYieldsToRunningWatcher`, `TestWatchUntilIdleExitsWhenNothingHeld`, `TestNeedsWatcher` |
 
 ## Security model
@@ -718,6 +731,12 @@ Live probes on 2026-10-27 used Claude Code 2.1.311, Codex CLI 0.164.0, and two R
 | Codex's daemon socket is a symlink | Live: `~/.codex/app-server-control/app-server-control.sock` links to a socket in `/private/tmp/codex-daemon-501/` (mode 0700). A first hardening that refused symlinks broke identity lookup through the real daemon; the check now follows the link and requires a private directory. With it, the roar pane's thread was bound again live. |
 | A held message waited for the next send to its pane | Live on Stiletto, 2026-10-28: cop's Claude ran without `server:roar`, so each message to it was typed. `rm-01M60WRJJD9KPSTFETZKXW6KJF` stayed queued from 09:16:51 to 11:21:52 UTC and went out 130 ms after the send of `rm-01M613XF98JG6HW2C8H5DX60FP`, which stayed queued in its place. No watcher ran. |
 | The watcher starts, delivers, and exits on its own | Live on Stiletto, 2026-10-28, Claude Code 2.1.312 (`--model haiku`, no Roar channel) in a Rex pane, mid-turn: `roar send` printed `queued busy` at 21:35:34, and a `roar-watch` block in `roar-relay` held `watch.lock`. At 21:35:56 Claude reported `done` and the message became `submitted` (`rex_submit`). Claude showed the header and answered. The watcher exited by 21:35:58 and its block closed. |
+| Busy Codex panes held most messages | Reported 2026-10-30 from Baroni: 26 of 32 replies to Codex panes (GPT-6.1-Sol, goal-mode turns) sat `queued busy` for tens of minutes. A Baroni pane showed `• Working (8m 00s • esc to interrupt)` above an empty `› Ask Codex to do anything` composer, and Rex reported `working`. The panes had no live binding: the Roar hook was untrusted ("3 warnings"), and a daemon-backed Codex binds only after it receives a message. |
+| Typed input joins a running Codex turn | Live on Stiletto, 2026-10-30, Codex 0.165.0: 10 s into a `sleep 30` turn, `roar ready` gave `empty: mid_turn`. `roar send` printed `submitted` with proof `rex_steer`. The message showed in the transcript during the turn, and Codex ended that same turn with `FIRST STEERED`. `TestLiveCodexMidTurn` repeats this. |
+| A Codex modal can report `working` | Live, same Codex: its hook-review screen reported `working` while its selected row began with `› `. The cursor was hidden, so the proof gave `wait: cursor_hidden`. |
+| Devin CLI takes typed delivery | Live on Stiletto, 2026-10-30, Devin CLI 3000.11.92, in a trusted directory: `roar ready` gave `empty` at rest, `wait: draft` with a draft and with the cursor moved home, and `empty` once cleared. `devin@<session>` resolved. `roar send` printed `submitted` (`rex_submit`). Devin answered by running `roar send --reply`, which stopped at its permission prompt, where Roar gave `wait: modal`. The fixtures in `internal/ready/testdata/devin-*.vt` come from this pane. |
+| Typed input joins a running Devin turn | Live on Stiletto, 2026-10-30, Devin CLI 3000.11.92 (`--permission-mode smart`): during a `sleep 30` turn the composer showed the grey placeholder `Guide Devin while it works`, and `roar ready` gave `empty: mid_turn`. `roar send` printed `submitted` with proof `rex_steer`, and Devin ended that turn with `SECOND STEERED`. The cop session had asked Roar to wait for rest, as for Claude; this test showed Devin takes the input into the turn, so Roar treats it like Codex. |
+| A Mac can provision a Linux host | Live: `roar install colonelk-rex.tail4f2cce.ts.net` from Stiletto was refused before any write, with `host is "Linux x86_64", the binary is "Darwin arm64"` and the `GOOS=linux GOARCH=amd64` build command. `roar ready colonelk-rex.tail4f2cce.ts.net:stance` resolved on Colonelk, a host with no `rex hosts` label on the sender. |
 | `rex events` carries block events server-wide only with `--all` | Live: starting and ending a command in a new pane gave `process_changed` and `child_exited` on `rex events --all --json` and neither on plain `rex events --json`. The Rex events reference documents the same scopes. |
 | A new hook needs operator trust; a bypass is refused | `--dangerously-bypass-hook-trust` exists, but Roar never uses it, and an agent's attempt to was refused by its own safety check |
 

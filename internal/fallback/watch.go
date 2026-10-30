@@ -11,6 +11,11 @@ import (
 // events it missed.
 const Sweep = 30 * time.Second
 
+// CatchUp is how long after starting `rex events` the watcher sweeps once
+// more. Rex sends nothing when the stream connects, so a change between the
+// last sweep and the connection would otherwise wait for the next Sweep.
+const CatchUp = 2 * time.Second
+
 // Block attempts the oldest queued message for one pane. One per pass: a
 // delivered message starts a turn, so the next would only be held as busy.
 func (d *Deliverer) Block(ctx context.Context, block string) (*Outcome, error) {
@@ -98,11 +103,14 @@ func (d *Deliverer) Watch(ctx context.Context, untilIdle bool) error {
 			}
 			continue
 		}
+		catchUp := time.After(CatchUp)
 	stream:
 		for {
 			select {
 			case <-ctx.Done():
 				return nil
+			case <-catchUp:
+				d.All(ctx)
 			case <-sweep.C:
 				d.All(ctx)
 			case ev, ok := <-events:

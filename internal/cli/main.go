@@ -69,7 +69,8 @@ const usage = `usage: roar <command> [args]
   ready <target>             is the pane's agent at rest with an empty composer? (exit 0 yes, 1 wait, 2 never)
   deliver [target...] [--watch]   deliver held messages to panes that are ready
   setup                      add Roar to every Claude and Codex config root in $HOME
-  install <host-label>       copy this roar to ~/.local/bin on another Rex host, then run setup there
+  install [--binary <path>] <host-label>   copy this roar, or another platform's build, to
+                             ~/.local/bin on another Rex host, then run setup there
   enqueue --sha256 <digest>  receive a message from another host (Roar runs this itself)
   mcp                        the Claude adapter (Claude starts it; do not run it yourself)
   hook codex                 the Codex SessionStart hook (Codex runs it; do not run it yourself)
@@ -78,6 +79,11 @@ const usage = `usage: roar <command> [args]
 // Main runs one command and returns its exit code.
 func Main(args []string, env Env) int {
 	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" || args[0] == "help" {
+		fmt.Fprint(env.Stdout, usage)
+		return exitOK
+	}
+	// A help flag after a command must not reach it as a target or host.
+	if len(args) > 1 && (args[1] == "-h" || args[1] == "--help") {
 		fmt.Fprint(env.Stdout, usage)
 		return exitOK
 	}

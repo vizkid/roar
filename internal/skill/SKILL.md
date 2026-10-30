@@ -23,5 +23,5 @@ roar send --file <path> <name> "text"       # attach; repeatable
 `read` or `submitted`: delivered. `queued`: held until the agent is free; it goes out later, so do not resend.
 `unknown`: delivery is uncertain and will not be retried; tell your user.
 `unbound_codex_thread`: Roar does not yet know your pane; it learns it from the first message you receive.
-If a name is ambiguous, use `<tab or pane>@<session>`. In place of a label, `codex`, `claude`, `left`, `right`, `top`, `bottom` or `top-left` also name a pane, as in `codex@api`. `peer` alone names the other pane in your own tab. Prefix `<host>:` for another Rex host.
+If a name is ambiguous, use `<tab or pane>@<session>`. In place of a label, `codex`, `claude`, `devin`, `left`, `right`, `top`, `bottom` or `top-left` also name a pane, as in `codex@api`. `peer` alone names the other pane in your own tab. Prefix `<host>:` for another Rex host.
 `rex ls` lists sessions. `roar inbox` lists messages waiting for you.

@@ -240,3 +240,26 @@ func TestSendWithAttachments(t *testing.T) {
 		t.Fatalf("oversized attachment: %d %q", code, errs)
 	}
 }
+
+// A help flag after a command prints the usage; it is never a target or host.
+func TestHelpAfterCommand(t *testing.T) {
+	for _, flag := range []string{"-h", "--help"} {
+		var out, errb bytes.Buffer
+		code := Main([]string{"install", flag}, Env{Stdout: &out, Stderr: &errb, Getenv: func(string) string { return "" }})
+		if code != 0 || !strings.Contains(out.String(), "usage: roar") || errb.Len() != 0 {
+			t.Fatalf("%s: exit %d, %q %q", flag, code, out.String(), errb.String())
+		}
+	}
+}
+
+// A host Rex has no label for can still be named by its DNS name.
+func TestDottedHostPrefixIsEndpoint(t *testing.T) {
+	c := rextest.Require(t)
+	host, rest, err := splitHost(t.Context(), c, "nolabel-rex.example.ts.net:api@work")
+	if err != nil || host != "nolabel-rex.example.ts.net" || rest != "api@work" {
+		t.Fatalf("got %q %q %v", host, rest, err)
+	}
+	if host, rest, _ := splitHost(t.Context(), c, "block:01a1-x"); host != "" || rest != "block:01a1-x" {
+		t.Fatalf("block ID split: %q %q", host, rest)
+	}
+}

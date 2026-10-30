@@ -28,6 +28,17 @@ type Result struct {
 	PID     int     `json:"pid,omitempty"`
 }
 
+// MidTurn is the reason for an empty composer during a turn, for an agent
+// that adds input typed then to the running turn. Claude would queue it, so
+// a Claude turn still waits.
+const MidTurn = "mid_turn"
+
+// steerable agents take typed input into a running turn, as shown live.
+var steerable = map[string]bool{"codex": true, "devin": true}
+
+// MidTurn reports an empty verdict for a pane whose turn is running.
+func (r Result) MidTurn() bool { return r.Verdict == Empty && r.Reason == MidTurn }
+
 func result(v Verdict, reason string) Result {
 	return Result{Verdict: v, State: v.String(), Reason: reason}
 }
@@ -41,7 +52,10 @@ type Snapshot struct {
 	VT            string
 }
 
-var agentApps = map[string]string{"claude": "claude-code", "codex": "codex"}
+var agentApps = map[string]string{"claude": "claude-code", "codex": "codex", "devin": "devin"}
+
+// marker reports a composer prompt: Claude's, Codex's or Devin's.
+func marker(r rune) bool { return r == '❯' || r == '›' || r == '❭' }
 
 // App is the program status app an agent reports as.
 func App(agent string) string { return agentApps[agent] }
@@ -50,8 +64,9 @@ func App(agent string) string { return agentApps[agent] }
 // earlier proof bound to; a different process means the pane changed hands.
 // The first verdict wins, in the order of the spec.
 func Decide(s Snapshot, wantPID int) Result {
-	if r := decideProcessAndStatus(s, wantPID); r.Verdict != Empty {
-		return r
+	gate := decideProcessAndStatus(s, wantPID)
+	if gate.Verdict != Empty {
+		return gate
 	}
 	if !s.CursorVisible {
 		return result(Wait, "cursor_hidden")
@@ -60,13 +75,14 @@ func Decide(s Snapshot, wantPID int) Result {
 	if err != nil {
 		return result(Wait, "no_cursor")
 	}
-	if r := composer(sc); r != "" {
+	if r := composer(sc, gate.Agent); r != "" {
 		return result(Wait, r)
 	}
-	fg := s.Process.Foreground
-	res := result(Empty, "empty")
-	res.Agent, res.PID = fg.Agent(), fg.PID
-	return res
+	if gate.MidTurn() {
+		return gate
+	}
+	gate.Reason = "empty"
+	return gate
 }
 
 // decideProcessAndStatus applies steps 1 to 4 of the proof: the pane is
@@ -91,8 +107,12 @@ func decideProcessAndStatus(s Snapshot, wantPID int) Result {
 		return result(Wait, "stale_status")
 	case st.EffectiveApp != agentApps[agent]:
 		return result(Wait, "foreign_status")
-	case st.State == "working":
+	case st.State == "working" && !steerable[agent]:
 		return result(Wait, "busy")
+	case st.State == "working":
+		res := result(Empty, MidTurn)
+		res.Agent, res.PID = agent, fg.PID
+		return res
 	case st.State != "idle" && st.State != "done":
 		return result(Wait, "modal")
 	}
@@ -101,27 +121,45 @@ func decideProcessAndStatus(s Snapshot, wantPID int) Result {
 	return res
 }
 
+// drafted reports typed text in the composer. The cursor may sit on a
+// continuation row of a long draft, so it looks up for the marker row.
+func drafted(sc screen, agent string) bool {
+	for i := sc.cursorRow - 1; i >= 0 && i < len(sc.rows); i-- {
+		r := sc.rows[i]
+		if r.isRule() {
+			return false
+		}
+		if len(r.cells) >= 2 && marker(r.cells[0].r) {
+			return r.typedText(2, agent) || i < sc.cursorRow-1
+		}
+		if !r.typedText(0, agent) {
+			return false
+		}
+	}
+	return false
+}
+
 // composer checks the cursor row. It returns "" for an empty composer.
 // It never reads composer text to judge whose draft it is; it only asks
 // whether any typed (not dim) text exists.
-func composer(sc screen) string {
+func composer(sc screen, agent string) string {
 	i := sc.cursorRow - 1
 	if i < 0 || i >= len(sc.rows) {
 		return "no_marker"
 	}
 	r := sc.rows[i]
-	if len(r.cells) < 2 || (r.cells[0].r != '❯' && r.cells[0].r != '›') ||
+	if len(r.cells) < 2 || !marker(r.cells[0].r) ||
 		(r.cells[1].r != ' ' && r.cells[1].r != ' ') {
 		return "no_marker"
 	}
-	if sc.cursorCol != 3 || r.typedText(2) {
+	if sc.cursorCol != 3 || r.typedText(2, agent) {
 		return "draft"
 	}
 	for _, next := range sc.rows[i+1:] {
 		if next.isRule() || next.blank() {
 			break
 		}
-		if next.typedText(0) {
+		if next.typedText(0, agent) {
 			return "draft"
 		}
 	}
