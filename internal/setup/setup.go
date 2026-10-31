@@ -68,6 +68,8 @@ func Run(out, errw io.Writer, home, roar string, roots Roots, cli ClaudeCLI) err
 		s, err := Codex(r, roar)
 		report("codex", r, s, err)
 	}
+	s, err := Burns(home, roar)
+	report("burns", "tools.d/roar.json", s, err)
 	if failed > 0 {
 		return fmt.Errorf("setup failed for %d config roots", failed)
 	}

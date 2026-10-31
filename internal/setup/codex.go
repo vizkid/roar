@@ -12,6 +12,13 @@ import (
 
 const hookArgs = " hook codex"
 
+// hookTimeout is the hook's limit in seconds. Codex allows 5 by default.
+const hookTimeout = 5
+
+// hookCommand is the hook's command text, the same in hooks.json and in
+// the Burns declaration.
+func hookCommand(roar string) string { return quote(roar) + hookArgs }
+
 // Codex installs the skill in a Codex home and adds the SessionStart hook
 // group that binds each pane to its thread.
 func Codex(home, roar string) (string, error) {
@@ -34,7 +41,7 @@ func Codex(home, roar string) (string, error) {
 			return "", err
 		}
 	}
-	changed, err := addHook(&file, quote(roar)+hookArgs)
+	changed, err := addHook(&file, hookCommand(roar))
 	if err != nil {
 		return "", err
 	}
@@ -68,7 +75,7 @@ func addHook(file *object, command string) (string, error) {
 		Command string `json:"command"`
 		Timeout int    `json:"timeout"`
 	}
-	ours, _ := json.Marshal(map[string][]entry{"hooks": {{"command", command, 5}}})
+	ours, _ := json.Marshal(map[string][]entry{"hooks": {{"command", command, hookTimeout}}})
 	changed := "hook added"
 	at := len(groups)
 	for i, g := range groups {

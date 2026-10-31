@@ -329,6 +329,24 @@ Two steps stay with the operator, because each one is a consent the provider ask
 
 Without either step, the pane still gets messages through [fallback](#fallback-through-rex).
 
+Setup also writes `~/.config/burns/tools.d/roar.json`, mode 0644, for [Burns](../../burns/docs/SPEC.md), which wires each account's tools at home setup and at launch. The file names what Roar needs in every account:
+
+```json
+{
+  "claude": {
+    "channel_servers": ["roar"],
+    "mcp": [{"name": "roar", "command": "<roar>", "args": ["mcp"]}]
+  },
+  "codex": {
+    "hooks": [{"event": "SessionStart", "command": "<roar> hook codex", "timeout": 5}]
+  }
+}
+```
+
+The hook command is the same text that setup writes into `hooks.json`, so Burns and setup never add two different Roar hooks. Burns merges every tool's channel servers into one launch flag. The two consents above stay with the operator.
+
+A Codex thread is on its home's app-server daemon, as [native delivery](#delivery-and-receipt-1) needs, only if the TUI started while that daemon ran and without `-c`. Any `-c` config override keeps the TUI in-process; `-m` and an initial prompt do not. `codex app-server daemon start` starts the daemon if it is not running.
+
 `roar install <host>` copies the binary to another Rex host, then runs `roar setup` there.
 
 ## Agent skill
@@ -680,6 +698,7 @@ These drive the tests. Each one is covered; the test names are listed after the 
 38. A message's record lists each change of state or hold reason, and keeps the last 32.
 39. A remote send's deadline grows with its attachments. After a try that may have landed, `roar send` reports `unknown` with the message ID.
 40. `roar panes` reports each pane's agent, delivery path, readiness and queued count. A Codex binding without a reachable daemon thread shows as `typed` with a note.
+41. `roar setup` writes `~/.config/burns/tools.d/roar.json` with the channel server, the MCP server, and the Codex hook command exactly as in `hooks.json`. A second run reports `ok`.
 32. Devin CLI is an agent: `devin@session` names its pane, an empty `❭` composer at rest is empty, a draft (also with the cursor home) waits, and a working Devin with an empty composer takes the message mid-turn. Only Devin's own grey is placeholder text.
 27. A send that holds a typed message starts a watcher, unless one runs. The watcher delivers the message when the pane comes to rest, without another command, then exits. A watcher started while another runs exits at once. A watcher exits once no queued message lacks a native adapter.
 
@@ -721,6 +740,7 @@ These drive the tests. Each one is covered; the test names are listed after the 
 | 38 | `TestHistoryKeepsEachReason`, `TestHistoryIsBounded` |
 | 39 | `TestSendBudgetGrowsWithAttachments` |
 | 40 | `TestPanesShowsDeliveryPaths` |
+| 41 | `TestBurnsDeclaration` |
 | 27 | `TestSendStartsWatcherThatDeliversAndExits`, `TestWatchUntilIdleYieldsToRunningWatcher`, `TestWatchUntilIdleExitsWhenNothingHeld`, `TestNeedsWatcher` |
 
 ## Security model
@@ -817,6 +837,7 @@ Live probes on 2026-10-27 used Claude Code 2.1.311, Codex CLI 0.164.0, and two R
 | Antigravity's composer and prompt | Live, agy 1.4.10: an empty composer is a blue `> ` between two grey rules with the cursor at column 3 and no placeholder text. A draft `hello draft` is default-colour text with the cursor at column 14. The permission prompt's selected row also starts with `> `, but agy then reports `blocked` (kind `permission`) and hides the cursor. A banner above the composer (`esc to dismiss`) leaves the status `idle` and the cursor row unchanged. |
 | Roar delivers to Antigravity end to end | Live on Stiletto, 2026-10-30, agy 1.4.10, scratch session `roar-agy-live`. A fresh agy first gave `wait: no_marker`: its empty composer row was a bare `>`, which the proof then learned. Unbound, `roar send` printed `submitted` and agy answered `TYPED OK`; while it asked to read the skill file outside its workspace, `roar ready` gave `wait: modal`. Asked by message, agy ran `roar bind agy` after one approval, and Roar wrote a 0600 binding. Then a send printed `read` (`agy_send_message`, boundary `turn`) and agy answered `NATIVE IDLE OK`. During its approval prompt for `sleep 25`, a send printed `queued modal`. After approval, a send printed `read` with boundary `mid_turn`, the watcher delivered the held one the same way, and agy listed both while the sleep ran. After the session was closed, one `roar deliver` deleted the binding. |
 | A paste with a paragraph break stranded Codex queues | Store records on Baroni, 2026-10-30: `rm-01M666Z0V6` to merge-nav ended `unknown` with `paste_not_seen`, and its text, with a blank row before the body, stayed in the composer. The next message held as `no_marker` until someone pressed Enter. comm-claude saw the same in four panes on Baroni and Stiletto. `TestSteersMessageWithBlankLine` failed the same way before the header check. A working Codex shows "tab to queue message" under such a draft; Enter still steers it in, so Roar presses Enter, not Tab. |
+| `-c` keeps a Codex TUI off the shared daemon | Live on Stiletto, 2026-10-31, Codex CLI 0.165.0 with daemon 0.166.0 on `~/.codex-personal`: a TUI started with no options, with `-m gpt-6.1-sol`, or with an initial prompt held a socket connection to the daemon. One started with `-c model_reasoning_effort=medium` held none. On Baroni, merge-nav's Codex, launched with that `-c`, held no daemon connection, and `roar panes` showed `codex_thread_notLoaded` for every pane launched that way. |
 | The header check works on a real Codex | Live on Stiletto, 2026-10-31, Codex CLI 0.165.0: `TestLiveCodexMidTurn` steers a message with a paragraph break into a running `sleep 25` turn. With the old check it ends `unknown` with `paste_not_seen`; with the header check it reaches `submitted` (`rex_steer`), and the model answers `FIRST STEERED`. |
 | A large remote send failed with a misleading error | comm-claude on Colonelk, 2026-10-30: a send with a ~12 MiB part failed twice with `rex ls --json: context deadline exceeded`. The upload used up the 2-minute command deadline; the retry then failed at its first `rex ls`. |
 | A new hook needs operator trust; a bypass is refused | `--dangerously-bypass-hook-trust` exists, but Roar never uses it, and an agent's attempt to was refused by its own safety check |
