@@ -3,6 +3,8 @@
 package ready
 
 import (
+	"strings"
+
 	"github.com/vizkid/roar/internal/rex"
 )
 
@@ -138,6 +140,25 @@ func drafted(sc screen, agent string) bool {
 		}
 		if !r.typedText(0, agent) {
 			return false
+		}
+	}
+	return false
+}
+
+// holds reports whether the composer holds the text whose first line
+// starts with head. It looks up from the cursor for the marker row and
+// reads that row only: a paragraph break draws a blank row inside a draft,
+// which ends drafted's scan. The message ID in head tells our paste from
+// an earlier prompt that the transcript shows with the same marker.
+func holds(sc screen, agent, head string) bool {
+	for i := sc.cursorRow - 1; i >= 0 && i < len(sc.rows); i-- {
+		r := sc.rows[i]
+		if r.isRule() {
+			return false
+		}
+		if len(r.cells) >= 1 && marker(r.cells[0].r, agent) {
+			rest := []rune(r.text())[1:]
+			return strings.HasPrefix(strings.TrimLeft(string(rest), " \u00a0"), head)
 		}
 	}
 	return false

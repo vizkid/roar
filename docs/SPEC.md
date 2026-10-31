@@ -1,6 +1,6 @@
 # Roar specification
 
-Owner: Viz. Updated: 2026-10-30. Formerly named Ping; renamed to Roar on 2026-10-27, because `ping` shadowed the system's network `ping`. Status: implemented on `main`; the spec itself is not yet ratified.
+Owner: Viz. Updated: 2026-10-31. Formerly named Ping; renamed to Roar on 2026-10-27, because `ping` shadowed the system's network `ping`. Status: implemented on `main`; the spec itself is not yet ratified.
 
 ## Problem and solution
 
@@ -50,6 +50,7 @@ Implementation language: Go.
 | `roar resolve <id> --read\|--requeue` | Settles an `unknown` message after the operator checked the conversation. | 0, 2 |
 | `roar ready <target>` | Prints the fallback readiness verdict for a pane. It takes the same targets as `roar send`, host prefix included. | 0 empty, 1 wait, 2 refuse |
 | `roar deliver [target...] [--watch [--until-idle]]` | Runs fallback delivery for queued messages whose recipients have no native adapter. `--watch` follows `rex events` and retries on status changes. `--until-idle` exits once nothing is held; Roar starts it itself. | 0, 2 |
+| `roar panes [host]` | Lists every Rex pane on this host, or on the named host: its agent, the delivery path Roar would use now (`channel`, `codex_native`, `agy_native`, `typed`, or `none`), the readiness verdict, and how many messages wait there. A note says why a native path is not in use, for example `channel_flag_missing` or `no_codex_daemon`. | 0, 2 |
 | `roar enqueue --sha256 <digest>` | Plumbing for cross-host sends: reads a forwarded envelope from stdin, stores it, then runs one delivery pass. | 0 stored or duplicate, 2 refused, 6 digest mismatch |
 | `roar setup` | Adds Roar to every Claude and Codex config root on this host. See [Setup](#setup). Safe to run again. | 0, 2 |
 | `roar install [--binary <path>] <host>` | Copies this binary, or the one `--binary` names, to another Rex host's `~/.local/bin`, then runs `roar setup` there. | 0, 2 |
@@ -151,7 +152,7 @@ One directory per host: `$ROAR_HOME`, default `$XDG_STATE_HOME/roar` (`~/.local/
 $ROAR_HOME/
   box/<recipient block>/<message id>/
     envelope.json      written once, never changed
-    state.json         replaced atomically on every change
+    state.json         replaced atomically on every change; its history lists the last 32 changes of state or reason
     lock               flock target for this message
   ids/<message id>        symlink to the box entry, for lookup by ID
   sent/<message id>.json  the envelope without its body, for the sender's status
@@ -245,6 +246,8 @@ The detached block runs the same `roar` binary as the command that started it, w
 A message held as `wrong_program` keeps the watcher alive until the pane runs an agent or closes. The watcher costs one open `rex events` stream and a store read per relevant event, so Roar accepts that.
 
 An operator can still run `roar deliver --watch` by hand. It waits for `watch.lock` and never exits on its own.
+
+A watcher can run for days, longer than one build of Roar. Every 30 seconds it checks its own binary. If `roar install` or a rebuild replaced that file, the watcher stops, releases `watch.lock`, and starts the new binary in its place with the same arguments. On 2026-10-30 a watcher on Baroni started at 09:05 and still ran that build after the 11:48 install.
 
 ### States
 
@@ -534,7 +537,7 @@ The status check comes first because a mid-turn composer looks empty. Claude and
 1. Take the message lock, then the pane lock (`panes/<block>.lock`). If another attempt holds the pane, hold the message as `pane_busy`. Run the proof. Record the foreground PID.
 2. Set the message to `submitting`.
 3. Paste the rendered message (header and body) with `block.event` `paste`, in pieces of at most 32 KiB. Rex brackets each piece, so newlines stay in the draft. `rex send` writes raw bytes and is not used for the body. Before pasting, every control character except newline and tab becomes a visible symbol (ESC shows as `␛`), and a carriage return becomes a newline. So a body cannot end the bracketed paste with `ESC [201~` and press keys.
-4. Run steps 1 to 4 of the proof again, bound to the recorded PID, within the same 2-second freshness bound. The composer now holds our text, so step 5 does not apply. For a `mid_turn` attempt, first wait up to 2 seconds for the composer row to show non-placeholder text. If it never does, set `unknown` with `paste_not_seen` and send no Enter.
+4. Run steps 1 to 4 of the proof again, bound to the recorded PID, within the same 2-second freshness bound. The composer now holds our text, so step 5 does not apply. For a `mid_turn` attempt, first wait up to 2 seconds for the composer to show our text: the marker row starts with the message's own header, `[roar <id>`, or, for a paste the agent folds into one placeholder, the composer holds typed text. If it never does, set `unknown` with `paste_not_seen` and send no Enter. The header check looks only at the marker row, because a paragraph break draws a blank row inside the draft. The ID tells our paste from an earlier prompt that the transcript shows with the same marker.
 5. Send `enter` with `rex send-key`.
 6. Wait up to 5 seconds for a report made after Enter, by the same process with the agent's app, in state `working`, `done` or `blocked`. A fast turn can go from `working` to `done` between two readings, so `done` counts. A `working` report from before Enter does not: that turn may have begun on its own. If one arrives, set `submitted` with proof `rex_submit`. Even then the report cannot prove which input started the turn.
    For a `mid_turn` attempt the turn is already running, so the agent may send no new report. Codex sends none; Devin reports `working` again (`Thinking`). There an empty composer within the same 5 seconds also counts, while the same process still reports `working` or `done`. Set `submitted` with proof `rex_steer`. The text left the composer, and the agent took it into the turn.
@@ -597,7 +600,8 @@ Rules:
 - The block is 4000 columns wide, and the screen is read unwrapped, so result lines never break.
 - Each host keeps one Rex session for these blocks, labelled `roar-relay`. It is not `roar`, because a project named roar already has a session by that label. Roar creates it on first use.
 - Rex authenticates the caller as a Tailscale principal, so Roar adds no network listener and no host key.
-- A lost answer is an unknown outcome. `roar send` retries twice with the same envelope, and the receiver dedupes by ID.
+- A lost answer is an unknown outcome. `roar send` retries twice with the same envelope, and the receiver dedupes by ID. Once one try may have landed, a later failure leaves the outcome unknown, and `roar send` prints `<id> unknown remote_outcome_unknown` rather than refusing.
+- A remote send gets 2 minutes plus 1 second per 48 KiB write of its base64 payload. A 12 MiB attachment needs about 340 writes, and on a loaded host each takes about a second, so the 2 minutes every other command gets ran out mid-upload.
 - `roar status` for a message held on another host runs `roar status --porcelain <id>` there the same way. Each line reads `ROAR-STATUS <id> <state> <detail> <proof> <boundary>`, with `-` for an empty field.
 - A reply goes back through the endpoint stored in the original envelope's `from` address.
 
@@ -671,6 +675,11 @@ These drive the tests. Each one is covered; the test names are listed after the 
 33. Antigravity CLI is an agent: `agy@session` names its pane, an empty `>` composer at rest is empty (also with nothing after the marker), a draft waits, and a working agy waits for typed delivery. The `>` marker counts only for agy. A permission prompt reports `blocked` and waits.
 34. `roar bind agy` in an agy pane writes a 0600 binding with the conversation, address and token, prints `bound <block>`, and never prints the token. Outside agy, or with an inherited pane, it binds nothing and exits 2. Any `roar` command run with `ANTIGRAVITY_CONVERSATION_ID` binds silently.
 35. With a live binding, a message reaches agy through `agentapi send-message` as `read` with proof `agy_send_message`, boundary `turn` at rest and `mid_turn` while working. A permission prompt holds it. A rejected call deletes the binding and falls back to typing in the same attempt. A timeout or garbled reply is `unknown`. A binding whose agy exited is deleted and unused, also when no message goes to its pane.
+36. A paste whose text has a paragraph break is recognised in a working Codex composer and reaches `submitted` with `rex_steer`. A transcript row that shows an earlier message never counts as our paste.
+37. A watcher whose binary was replaced restarts with the new binary. A rename and a rewrite in place both count; a missing file does not.
+38. A message's record lists each change of state or hold reason, and keeps the last 32.
+39. A remote send's deadline grows with its attachments. After a try that may have landed, `roar send` reports `unknown` with the message ID.
+40. `roar panes` reports each pane's agent, delivery path, readiness and queued count. A Codex binding without a reachable daemon thread shows as `typed` with a note.
 32. Devin CLI is an agent: `devin@session` names its pane, an empty `❭` composer at rest is empty, a draft (also with the cursor home) waits, and a working Devin with an empty composer takes the message mid-turn. Only Devin's own grey is placeholder text.
 27. A send that holds a typed message starts a watcher, unless one runs. The watcher delivers the message when the pane comes to rest, without another command, then exits. A watcher started while another runs exits at once. A watcher exits once no queued message lacks a native adapter.
 
@@ -707,6 +716,11 @@ These drive the tests. Each one is covered; the test names are listed after the 
 | 33 | `TestComposerStates`, `TestDrafted`, `TestAgyMarkerOnlyForAgy`, `TestAgentNames`, `TestResolveAgyHint`, `TestSubmitsIntoEmptyComposer`, `TestHoldsWhileBusyOrModal` |
 | 34 | `TestBindAgyOwnPane`, `TestAgyCommandBindsSilently`, `TestBindAgyRefusesOutsideAgy`, `TestBindAgyIgnoresInheritedPane`, `TestBindingKeepsTokenPrivate` |
 | 35 | `TestAgyIdleIsTurn`, `TestAgyBusyIsMidTurn`, `TestAgyModalHolds`, `TestAgyRejectedFallsBackToTyping`, `TestAgyGarbledIsUnknown`, `TestAgyDeadBindingDeleted`, `TestPruneAgyDropsExited`, `TestCrashedAgyWriterSettlesToUnknown`, `TestAgyUnboundWaitsWhileBusy`, plus the live run in Evidence |
+| 36 | `TestSteersMessageWithBlankLine`, `TestHoldsNeedsOwnHeader`, `TestPasteNotSeenLeavesUnknown` |
+| 37 | `TestBinaryReplaced` |
+| 38 | `TestHistoryKeepsEachReason`, `TestHistoryIsBounded` |
+| 39 | `TestSendBudgetGrowsWithAttachments` |
+| 40 | `TestPanesShowsDeliveryPaths` |
 | 27 | `TestSendStartsWatcherThatDeliversAndExits`, `TestWatchUntilIdleYieldsToRunningWatcher`, `TestWatchUntilIdleExitsWhenNothingHeld`, `TestNeedsWatcher` |
 
 ## Security model
@@ -802,6 +816,8 @@ Live probes on 2026-10-27 used Claude Code 2.1.311, Codex CLI 0.164.0, and two R
 | Antigravity queues typed mid-turn input | Live, same agy: text typed and entered during a `sleep 25` showed as `▸ TYPED MIDTURN ... (alt+m to send immediately)` above `Press up to edit queued messages`, not in the turn. |
 | Antigravity's composer and prompt | Live, agy 1.4.10: an empty composer is a blue `> ` between two grey rules with the cursor at column 3 and no placeholder text. A draft `hello draft` is default-colour text with the cursor at column 14. The permission prompt's selected row also starts with `> `, but agy then reports `blocked` (kind `permission`) and hides the cursor. A banner above the composer (`esc to dismiss`) leaves the status `idle` and the cursor row unchanged. |
 | Roar delivers to Antigravity end to end | Live on Stiletto, 2026-10-30, agy 1.4.10, scratch session `roar-agy-live`. A fresh agy first gave `wait: no_marker`: its empty composer row was a bare `>`, which the proof then learned. Unbound, `roar send` printed `submitted` and agy answered `TYPED OK`; while it asked to read the skill file outside its workspace, `roar ready` gave `wait: modal`. Asked by message, agy ran `roar bind agy` after one approval, and Roar wrote a 0600 binding. Then a send printed `read` (`agy_send_message`, boundary `turn`) and agy answered `NATIVE IDLE OK`. During its approval prompt for `sleep 25`, a send printed `queued modal`. After approval, a send printed `read` with boundary `mid_turn`, the watcher delivered the held one the same way, and agy listed both while the sleep ran. After the session was closed, one `roar deliver` deleted the binding. |
+| A paste with a paragraph break stranded Codex queues | Store records on Baroni, 2026-10-30: `rm-01M666Z0V6` to merge-nav ended `unknown` with `paste_not_seen`, and its text, with a blank row before the body, stayed in the composer. The next message held as `no_marker` until someone pressed Enter. comm-claude saw the same in four panes on Baroni and Stiletto. `TestSteersMessageWithBlankLine` failed the same way before the header check. A working Codex shows "tab to queue message" under such a draft; Enter still steers it in, so Roar presses Enter, not Tab. |
+| A large remote send failed with a misleading error | comm-claude on Colonelk, 2026-10-30: a send with a ~12 MiB part failed twice with `rex ls --json: context deadline exceeded`. The upload used up the 2-minute command deadline; the retry then failed at its first `rex ls`. |
 | A new hook needs operator trust; a bypass is refused | `--dangerously-bypass-hook-trust` exists, but Roar never uses it, and an agent's attempt to was refused by its own safety check |
 
 ## Related documents

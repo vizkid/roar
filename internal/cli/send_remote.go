@@ -2,11 +2,13 @@ package cli
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"flag"
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/vizkid/roar/internal/envelope"
 	"github.com/vizkid/roar/internal/remote"
@@ -68,22 +70,44 @@ func remoteHost(env Env, server string) remote.Host {
 }
 
 // sendRemote hands the envelope to the recipient's host. A lost answer is
-// retried with the same envelope; the receiver dedupes by ID.
+// retried with the same envelope; the receiver dedupes by ID. Once one try
+// may have landed, every later failure leaves the outcome unknown.
 func sendRemote(ctx context.Context, env Env, e envelope.Envelope, files map[string][]byte) (remote.Result, error) {
 	server := e.To.Endpoint
 	if server == "" {
 		return remote.Result{}, errors.New("no_route: the recipient has no Rex endpoint")
 	}
 	h := remoteHost(env, server)
-	var lastErr error
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), sendBudget(files))
+	defer cancel()
+	var unknown error
 	for range 3 {
 		r, err := h.EnqueueWithFiles(ctx, e, files)
-		if err == nil || !errors.Is(err, remote.ErrUnknown) {
+		switch {
+		case err == nil:
+			return r, nil
+		case errors.Is(err, remote.ErrUnknown):
+			unknown = err
+		case unknown == nil:
 			return r, err
 		}
-		lastErr = err
+		if ctx.Err() != nil {
+			break // a retry would fail at its first rex call
+		}
 	}
-	return remote.Result{}, lastErr
+	return remote.Result{}, unknown
+}
+
+// sendBudget is how long a remote send may take. Rex takes the payload in
+// Chunk-sized writes, one rex call each, and a loaded host needs about a
+// second per call. A 12 MiB attachment then takes minutes, more than the
+// two every command gets.
+func sendBudget(files map[string][]byte) time.Duration {
+	size := 0
+	for _, b := range files {
+		size += base64.StdEncoding.EncodedLen(len(b))
+	}
+	return 2*time.Minute + time.Duration(size/remote.Chunk)*time.Second
 }
 
 // cmdInstall copies this roar binary, or the --binary build for another

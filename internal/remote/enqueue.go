@@ -98,6 +98,22 @@ func (h Host) Status(ctx context.Context, ids ...string) ([]StatusRow, error) {
 	return rows, nil
 }
 
+// Lines runs a roar command on the host and returns the fields of its
+// output lines that start with marker.
+func (h Host) Lines(ctx context.Context, marker string, args ...string) ([][]string, error) {
+	code, screen, err := h.run(ctx, h.roarCommand(args...), nil, false)
+	if err != nil {
+		return nil, err
+	}
+	if code == 126 || code == 127 {
+		return nil, ErrNoPing
+	}
+	if code != 0 {
+		return nil, fmt.Errorf("%w: %s", ErrRefused, lastError(screen, code))
+	}
+	return markedLines(screen, marker), nil
+}
+
 // Setup runs `roar setup` on the host and returns what it printed.
 func (h Host) Setup(ctx context.Context) (string, error) {
 	code, screen, err := h.run(ctx, h.roarCommand("setup"), nil, false)

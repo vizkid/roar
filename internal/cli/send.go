@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/vizkid/roar/internal/envelope"
+	"github.com/vizkid/roar/internal/remote"
 	"github.com/vizkid/roar/internal/store"
 )
 
@@ -68,6 +70,12 @@ func cmdSend(ctx context.Context, env Env, args []string) error {
 
 	if to.HostID != from.HostID {
 		r, err := sendRemote(ctx, env, e, files)
+		if errors.Is(err, remote.ErrUnknown) {
+			// The message may have landed. Report its ID, as for any
+			// unknown outcome, so the sender can check before resending.
+			fmt.Fprintf(env.Stderr, "roar: %v\n", err)
+			r, err = remote.Result{ID: e.ID, State: "unknown", Reason: "remote_outcome_unknown"}, nil
+		}
 		if err != nil {
 			return err
 		}

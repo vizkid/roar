@@ -56,6 +56,7 @@ func (c *Claim) Move(to State, now time.Time, edit func(*Record)) error {
 	if to == Read || to == Submitted {
 		r.Reason = "" // an earlier retry's error no longer describes the message
 	}
+	r.note()
 	if err := writeJSON(filepath.Join(c.msg.Dir, "state.json"), r); err != nil {
 		return err
 	}

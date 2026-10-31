@@ -27,7 +27,9 @@ const DefaultBin = "$HOME/.local/bin/roar"
 const (
 	readyMarker = "ROAR-READY"
 	endMarker   = "#END#"
-	chunk       = 48 << 10 // under Rex's 64 KiB request limit
+	// Chunk is how much input one rex write carries, under Rex's 64 KiB
+	// request limit.
+	Chunk = 48 << 10
 )
 
 // RelaySession labels the session that holds Roar's detached blocks on each
@@ -98,7 +100,7 @@ func (h Host) run(ctx context.Context, command []string, input []byte, wait bool
 			data = wrap76(base64.StdEncoding.EncodeToString(input)) + "\x04"
 		}
 		for len(data) > 0 {
-			n := min(chunk, len(data))
+			n := min(Chunk, len(data))
 			var out map[string]any
 			if err := h.Rex.Call(ctx, &out, session, block, "write", map[string]string{"data": data[:n]}); err != nil {
 				return h.finish(ctx, session, block, fmt.Errorf("%w: writing input: %v", ErrUnknown, err))

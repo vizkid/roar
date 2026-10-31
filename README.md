@@ -70,6 +70,7 @@ Where no label matches, a hint names the pane: the agent it runs (`codex@roar`, 
 
 When Roar holds a typed message, it starts a watcher on that host if none runs. The watcher delivers the message when the pane comes to rest, then exits once nothing is held. It runs as `roar deliver --watch --until-idle` in a `roar-watch` block of the `roar-relay` session.
 `roar ready <target>` reports whether a pane could take typed input now (exit 0 yes, 1 wait, 2 never).
+`roar panes [host]` lists every pane with its agent, the delivery path Roar would use, its readiness, and how many messages wait there.
 A message whose delivery outcome is unknown is never retried automatically. Check the conversation, then run `roar resolve <id> --read` or `--requeue`.
 
 ## Checks

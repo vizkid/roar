@@ -210,3 +210,37 @@ func TestAgyMarkerOnlyForAgy(t *testing.T) {
 	s.VT = strings.Replace(s.VT, ">\x1b[1C\x1b[0m     ", ">\x1b[0m", 1)
 	expect(t, "agy bare marker", Decide(s, 0), Empty, "empty")
 }
+
+func textRow(s string) row {
+	var r row
+	for _, c := range s {
+		r.cells = append(r.cells, cell{r: c})
+	}
+	return r
+}
+
+// Codex shows earlier prompts in its transcript with the composer's own
+// marker. Only the message's ID proves the composer holds our paste.
+func TestHoldsNeedsOwnHeader(t *testing.T) {
+	rows := []row{
+		textRow("› [roar rm-OLD from a/1 inform]"),
+		textRow(""),
+		textRow("› [roar rm-NEW from a/1 inform]"),
+		textRow("  first paragraph"),
+		textRow(""),
+		textRow("  second paragraph"),
+	}
+	sc := screen{rows: rows, cursorRow: 6, cursorCol: 19}
+	if !holds(sc, "codex", "[roar rm-NEW") {
+		t.Fatal("own paste across a blank row not seen")
+	}
+	if holds(sc, "codex", "[roar rm-OLD") {
+		t.Fatal("an earlier prompt counted as the paste")
+	}
+	sc.rows[2] = textRow("› ")
+	sc.rows = sc.rows[:3]
+	sc.cursorRow = 3
+	if holds(sc, "codex", "[roar rm-OLD") {
+		t.Fatal("looked past the empty composer's own marker")
+	}
+}

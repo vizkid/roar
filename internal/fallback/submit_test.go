@@ -38,3 +38,17 @@ func TestPasteNotSeenLeavesUnknown(t *testing.T) {
 		t.Fatalf("submitted %q", agenttest.Joined(got))
 	}
 }
+
+// A paragraph break draws a blank row inside the composer. Roar must still
+// see its own paste, or the text stays behind as a draft and every later
+// message waits behind it.
+func TestSteersMessageWithBlankLine(t *testing.T) {
+	f := setup(t)
+	a := agenttest.Start(t, f.rex, f.bin, "codex")
+	a.Control("working")
+	e := f.queue(a.Session, a.Block, "first paragraph\n\nsecond paragraph")
+	want(t, f.attempt(e.ID), store.Submitted, "")
+	if got := a.Submitted(); len(got) != 1 || got[0] != e.Render() {
+		t.Fatalf("codex received %q, want %q", agenttest.Joined(got), e.Render())
+	}
+}

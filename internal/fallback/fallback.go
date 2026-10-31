@@ -112,7 +112,7 @@ func (d *Deliverer) typeMessage(ctx context.Context, c *store.Claim, proof ready
 	if err := d.Rex.Paste(ctx, to.Session, to.Block, envelope.TerminalSafe(m.Render())); err != nil {
 		return unknown("paste_failed")
 	}
-	if proof.MidTurn() && !d.pasteShown(ctx, to.Session, to.Block, agent) {
+	if proof.MidTurn() && !d.pasteShown(ctx, to.Session, to.Block, agent, "[roar "+m.Envelope.ID) {
 		return unknown("paste_not_seen")
 	}
 	if r := ready.Status(ctx, d.Rex, to.Session, to.Block, pid); r.Verdict != ready.Empty {

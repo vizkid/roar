@@ -11,12 +11,12 @@ import (
 // PasteWait is how long a mid-turn paste may take to show in the composer.
 const PasteWait = 2 * time.Second
 
-// pasteShown waits for the composer to hold text. A mid-turn submit is
-// proved by the composer emptying, which proves nothing unless our text
-// was there first.
-func (d *Deliverer) pasteShown(ctx context.Context, session, block, agent string) bool {
+// pasteShown waits for the composer to hold the message whose header
+// starts with head. A mid-turn submit is proved by the composer emptying,
+// which proves nothing unless our text was there first.
+func (d *Deliverer) pasteShown(ctx context.Context, session, block, agent, head string) bool {
 	return poll(ctx, PasteWait, func() bool {
-		return ready.Composer(ctx, d.Rex, session, block, agent) == "draft"
+		return ready.Holds(ctx, d.Rex, session, block, agent, head)
 	})
 }
 

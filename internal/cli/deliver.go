@@ -5,8 +5,10 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
+	"syscall"
 
 	"github.com/vizkid/roar/internal/fallback"
 	"github.com/vizkid/roar/internal/ready"
@@ -104,7 +106,7 @@ func cmdDeliver(ctx context.Context, env Env, args []string) error {
 		if len(targets) > 0 {
 			return usageErr("roar deliver --watch takes no targets")
 		}
-		return d.Watch(watchContext(ctx), *untilIdle)
+		return watchAndRestart(ctx, d, *untilIdle, args)
 	}
 	var outs []fallback.Outcome
 	if len(targets) == 0 {
@@ -135,6 +137,22 @@ func cmdDeliver(ctx context.Context, env Env, args []string) error {
 		fmt.Fprintf(env.Stdout, "%s  %-10s %s\n", o.ID, o.State, o.Reason)
 	}
 	return nil
+}
+
+// watchAndRestart runs the watcher and, when its binary is replaced,
+// starts the new one in its place with the same arguments.
+func watchAndRestart(ctx context.Context, d *fallback.Deliverer, untilIdle bool, args []string) error {
+	b, ok := currentBinary()
+	if !ok {
+		return d.Watch(watchContext(ctx), untilIdle)
+	}
+	wctx, replaced := untilReplaced(watchContext(ctx), b)
+	err := d.Watch(wctx, untilIdle)
+	if !replaced() {
+		return err
+	}
+	// Watch has released watch.lock, so the new watcher can take it.
+	return syscall.Exec(b.path, append([]string{b.path, "deliver"}, args...), os.Environ())
 }
 
 // silentExit carries an exit code whose explanation is already printed.

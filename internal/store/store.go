@@ -111,7 +111,9 @@ func (s *Store) PutWithFiles(e envelope.Envelope, now time.Time, files map[strin
 	if err := writeJSON(filepath.Join(tmp, "envelope.json"), e); err != nil {
 		return false, err
 	}
-	if err := writeJSON(filepath.Join(tmp, "state.json"), Record{State: Queued, UpdatedAt: now}); err != nil {
+	first := Record{State: Queued, UpdatedAt: now}
+	first.note()
+	if err := writeJSON(filepath.Join(tmp, "state.json"), first); err != nil {
 		return false, err
 	}
 	boxDir := filepath.Join(s.root, "box", e.To.Block)

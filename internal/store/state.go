@@ -57,4 +57,33 @@ type Record struct {
 	// ForegroundPID is the agent process the fallback proved ready.
 	ForegroundPID int `json:"foreground_pid,omitempty"`
 	Attempts      int `json:"attempts,omitempty"`
+	// History lists each change of state or reason, oldest first, so a
+	// message held for hours shows why. It keeps the last MaxHistory.
+	History []Step `json:"history,omitempty"`
+}
+
+// Step is one entry of a record's history.
+type Step struct {
+	At     time.Time `json:"at"`
+	State  State     `json:"state"`
+	Reason string    `json:"reason,omitempty"`
+}
+
+// MaxHistory bounds a record's history. A message re-held on every sweep
+// changes reason rarely, so this covers days.
+const MaxHistory = 32
+
+// note appends a step when the state or the reason changed.
+func (r *Record) note() {
+	reason := r.HoldReason
+	if reason == "" {
+		reason = r.Reason
+	}
+	if n := len(r.History); n > 0 && r.History[n-1].State == r.State && r.History[n-1].Reason == reason {
+		return
+	}
+	r.History = append(r.History, Step{At: r.UpdatedAt, State: r.State, Reason: reason})
+	if len(r.History) > MaxHistory {
+		r.History = r.History[len(r.History)-MaxHistory:]
+	}
 }

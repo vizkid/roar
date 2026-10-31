@@ -50,6 +50,7 @@ var commands = map[string]command{
 	"withdraw": cmdWithdraw,
 	"resolve":  cmdResolve,
 	"ready":    cmdReady,
+	"panes":    cmdPanes,
 	"deliver":  cmdDeliver,
 	"mcp":      cmdMCP,
 	"hook":     cmdHook,
@@ -68,6 +69,7 @@ const usage = `usage: roar <command> [args]
   withdraw <id>              expire your own queued message
   resolve <id> --read|--requeue   settle a message in state unknown
   ready <target>             is the pane's agent at rest with an empty composer? (exit 0 yes, 1 wait, 2 never)
+  panes [host]               list Rex panes: agent, delivery path, readiness, queued messages
   deliver [target...] [--watch]   deliver held messages to panes that are ready
   setup                      add Roar to every Claude and Codex config root in $HOME
   install [--binary <path>] <host-label>   copy this roar, or another platform's build, to

@@ -50,21 +50,9 @@ func Status(ctx context.Context, c rex.Client, session, block string, wantPID in
 // Composer reads the screen and says what agent's composer holds: "empty",
 // "draft", or "" when the screen shows no composer.
 func Composer(ctx context.Context, c rex.Client, session, block, agent string) string {
-	visible, err := c.CursorVisible(ctx, session, block)
-	if err != nil || !visible {
-		return ""
-	}
-	rows, err := c.Rows(ctx, session, block)
-	if err != nil {
-		return ""
-	}
-	vt, err := c.ScreenVT(ctx, session, block)
-	if err != nil {
-		return ""
-	}
-	sc, err := parseScreen(vt, rows)
+	sc, ok := readScreen(ctx, c, session, block)
 	switch {
-	case err != nil:
+	case !ok:
 		return ""
 	case composer(sc, agent) == "":
 		return "empty"
@@ -72,6 +60,33 @@ func Composer(ctx context.Context, c rex.Client, session, block, agent string) s
 		return "draft"
 	}
 	return ""
+}
+
+// Holds reports whether the composer holds the pasted text whose first
+// line starts with head, or, for a paste the agent folded into one
+// placeholder, any typed text at all.
+func Holds(ctx context.Context, c rex.Client, session, block, agent, head string) bool {
+	sc, ok := readScreen(ctx, c, session, block)
+	return ok && (holds(sc, agent, head) || drafted(sc, agent))
+}
+
+// readScreen reads the screen while the cursor shows; a hidden cursor
+// means no composer has focus.
+func readScreen(ctx context.Context, c rex.Client, session, block string) (screen, bool) {
+	visible, err := c.CursorVisible(ctx, session, block)
+	if err != nil || !visible {
+		return screen{}, false
+	}
+	rows, err := c.Rows(ctx, session, block)
+	if err != nil {
+		return screen{}, false
+	}
+	vt, err := c.ScreenVT(ctx, session, block)
+	if err != nil {
+		return screen{}, false
+	}
+	sc, err := parseScreen(vt, rows)
+	return sc, err == nil
 }
 
 func snapshot(ctx context.Context, c rex.Client, session, block string) (Snapshot, error) {

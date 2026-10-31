@@ -55,3 +55,24 @@ func Deliver(ctx context.Context, c *store.Claim, b store.CodexBinding, writer s
 		return true, c.Move(store.Unknown, now(), func(r *store.Record) { r.Reason = err.Error() })
 	}
 }
+
+// Reachable reports whether Deliver would use the binding now, and if not,
+// why: no daemon socket, or a thread the daemon has not loaded. It sends
+// nothing.
+func Reachable(ctx context.Context, b store.CodexBinding) (bool, string) {
+	ctx, cancel := context.WithTimeout(ctx, DeliverTimeout)
+	defer cancel()
+	cl, err := dial(ctx, Socket(b.CodexHome))
+	if err != nil {
+		return false, "no_codex_daemon"
+	}
+	defer cl.close()
+	status, err := cl.status(ctx, b.Thread)
+	switch {
+	case err != nil:
+		return false, "codex_thread_unreadable"
+	case status != "idle" && status != "active":
+		return false, "codex_thread_" + status
+	}
+	return true, ""
+}

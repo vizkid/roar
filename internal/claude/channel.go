@@ -38,6 +38,10 @@ func channelProof(readArgs func(pid int) ([]string, error), ppid int) (bool, str
 	return true, ""
 }
 
+// ChannelProof reports whether the Claude with this pid loads Roar's
+// channel, and if not, why.
+func ChannelProof(pid int) (bool, string) { return channelProof(ParentArgs, pid) }
+
 func printMode(args []string) bool {
 	for _, a := range args {
 		if a == "--" {
