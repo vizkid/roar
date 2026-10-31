@@ -125,7 +125,9 @@ func TestLiveCodexMidTurn(t *testing.T) {
 	}
 	waitState(t, f, session, block, "working")
 	time.Sleep(5 * time.Second) // into the sleep, well before the turn ends
-	e := f.queue(session, block, "Roar live steer: when you reply, add the word STEERED.")
+	// The paragraph break draws a blank row in the composer, which once hid
+	// the paste from Roar.
+	e := f.queue(session, block, "Roar live steer.\n\nWhen you reply, add the word STEERED.")
 	want(t, f.attempt(e.ID), store.Submitted, "")
 	if m, _ := f.st.Get(e.ID); m.Record.Proof != "rex_steer" {
 		t.Fatalf("proof %q, want rex_steer", m.Record.Proof)
