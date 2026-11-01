@@ -412,6 +412,7 @@ The live run on Stiletto, Baroni and Colonelk reports, for a small send and for 
 | A client can offer actions that other clients call | Live on Stiletto, 2026-11-01, API revision 7. A prototype connected, set label `roard`, and listed `roar.ping` in `client.keymap`. `client.perform` returned its result in 18 ms. An action it did not list failed with `not_supported` before reaching it. |
 | Another host can call it, and Rex names the caller | The same prototype, called from Baroni with `rex -S https://stiletto-rex.tail4f2cce.ts.net api call client.perform`. The principal was kind `tailscale`, node `baroni`, with the Tailscale user ID. A local call showed kind `peer`, uid 501. |
 | The `rex` CLI refuses large requests | `client.perform` with 512 KiB and 900 KiB arguments failed in the CLI: "encoded request is 524459 bytes, limit is 65536". The server's welcome reports `max_message_bytes` 1048576. |
+| Roar's own client reaches another host over Tailscale and sends large messages | `TestLiveRemoteControl` (`internal/rexctl`), 2026-11-01, from Stiletto. Against Baroni: a client offered an action on Baroni's server, another called it; small call 16 ms, 700 KiB call 840 ms, principal kind `tailscale`. Against Colonelk: 13 ms and 568 ms. |
 | Baroni and Colonelk support it | Both servers list `client.keymap`, `client.perform`, `client.reply` and `client.set_label`. roard itself has not run on Linux yet. |
 | Terminal events | The local server's terminal block type lists `program_status_changed`, `program_status_removed`, `process_changed` and `child_exited`. `block_event` arrives only with `event_scope` `all`. |
 | A block data connection cannot carry an upload | The reference's "Data Connections" section: bytes flow only from the server to the client. |
@@ -422,7 +423,6 @@ The live run on Stiletto, Baroni and Colonelk reports, for a small send and for 
 
 | Question | Recommendation |
 | --- | --- |
-| Can Roar's own WebSocket client connect to another host's Rex server over Tailscale, as `rex -S` does? | Not yet tested. Check it first in the prototype; the whole sender design depends on it. If it fails, the sender falls back to the `rex` CLI with 48 KiB parts and keeps the callback design through a sender-side roard. |
 | What part size works best? | Start at 768 KiB, one part in flight. Measure small-send latency during a large upload before raising either. |
 | Should a remote send fall back to a detached block when roard is down? | No. That brings `roar-relay` back and hides a broken service. Refuse with `roard_not_running`. |
 | Can Codex daemon notifications replace the stale-turn recheck? | Unknown. Roar's Codex client ignores notifications today. Test them before relying on them. |
