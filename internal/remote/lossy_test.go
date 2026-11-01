@@ -152,3 +152,24 @@ func TestPeerSmallSendOverSlowLink(t *testing.T) {
 		t.Fatalf("send %+v: %v", r, err)
 	}
 }
+
+// A first send with nothing learned about the link, whose connect floor is
+// shorter than the two round trips that open a connection: each try waits
+// longer until one connects. The round trip is 4 s, because Rex closes a
+// connection whose hello arrives more than 5 s after it opened, so no
+// client can open one over a slower link (seen live with a 12 s link).
+func TestPeerFirstSendOverVerySlowLink(t *testing.T) {
+	if os.Getenv("ROAR_SLOW") != "1" {
+		t.Skip("set ROAR_SLOW=1: this runs for minutes")
+	}
+	f := startRoard(t, func(st *store.Store) roard.Delivery { return markRead{st} })
+	upstream := strings.ReplaceAll(strings.TrimPrefix(f.ep, "unix://"), "%20", " ")
+	link := newLossy(t, upstream, 2*time.Second, 0)
+	p := &Peer{Endpoint: "unix://" + link.sock, Label: f.label, Settings: settings(t, "sender.transfer.base=10m,sender.connect.timeout=3s")}
+	start := time.Now()
+	r, err := p.Send(t.Context(), peerEnvelope("very slow hi"), nil)
+	t.Logf("first send over a 4 s link with a 3 s connect floor: %v, srtt %v", time.Since(start).Round(time.Second), p.SRTT().Round(time.Second))
+	if err != nil || r.State != "read" {
+		t.Fatalf("send %+v: %v", r, err)
+	}
+}

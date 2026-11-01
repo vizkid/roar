@@ -46,6 +46,7 @@ type Peer struct {
 	Stats    Stats
 
 	afterPart func(*rexctl.Client, int) // test hook
+	dialFails int
 	mu        sync.Mutex
 	rtt       config.RTT
 }
@@ -103,17 +104,27 @@ func (p *Peer) dial(ctx context.Context) (*link, error) {
 			}
 			return "ok", nil
 		}}
-	connect := config.Deadline{Timeout: s.Duration("sender.connect.timeout"), RTTFactor: s.Float("sender.call.rtt_factor")}
+	// A dial that times out teaches nothing about the link, so each failed
+	// try waits longer, by the backoff factor: 10 s, then 20 s, then 40 s.
+	floor := s.Duration("sender.connect.timeout")
+	for range p.dialFails {
+		floor = time.Duration(float64(floor) * s.Float("sender.connect.factor"))
+	}
+	connect := config.Deadline{Timeout: floor, RTTFactor: s.Float("sender.call.rtt_factor")}
 	dctx, cancel := context.WithTimeout(ctx, connect.For(p.SRTT()))
 	t0 := time.Now()
 	c, err := rexctl.Dial(dctx, open)
 	cancel()
 	if err != nil {
+		p.dialFails++
 		return nil, err
 	}
+	p.dialFails = 0
+	p.mu.Lock()
 	if p.rtt.SRTT() == 0 {
-		p.rtt.Observe(time.Since(t0) / 2)
+		p.rtt.Observe(time.Since(t0) / 2) // the handshake, then hello and welcome
 	}
+	p.mu.Unlock()
 	// The part size follows from the server's message limit, which the
 	// welcome already gave: no hello needed. Offering roar.result and finding
 	// roard go out together, one round trip on a slow link instead of two.
