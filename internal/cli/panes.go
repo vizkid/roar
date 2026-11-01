@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"strconv"
@@ -197,25 +198,14 @@ func (r paneRow) fields() []string {
 }
 
 func remotePanes(ctx context.Context, env Env, host string) ([]paneRow, error) {
-	lines, err := remoteHost(env, host).Lines(ctx, "ROAR-PANE", "panes", "--porcelain")
+	p, err := peerFor(ctx, env, host)
 	if err != nil {
 		return nil, err
 	}
-	undash := func(s string) string {
-		if s == "-" {
-			return ""
-		}
-		return s
+	raw, err := p.Panes(ctx)
+	if err != nil {
+		return nil, err
 	}
 	var rows []paneRow
-	for _, f := range lines {
-		if len(f) < 9 {
-			continue
-		}
-		pid, _ := strconv.Atoi(f[4])
-		queued, _ := strconv.Atoi(f[7])
-		rows = append(rows, paneRow{Session: undash(f[0]), Pane: undash(f[1]), Block: f[2], Agent: undash(f[3]),
-			PID: pid, Path: f[5], Ready: undash(f[6]), Queued: queued, Note: undash(f[8])})
-	}
-	return rows, nil
+	return rows, json.Unmarshal(raw, &rows)
 }

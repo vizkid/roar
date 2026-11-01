@@ -1,12 +1,14 @@
 package cli
 
 import (
+	"cmp"
 	"context"
 	"flag"
 	"fmt"
 	"strings"
 
 	"github.com/vizkid/roar/internal/envelope"
+	"github.com/vizkid/roar/internal/remote"
 	"github.com/vizkid/roar/internal/store"
 )
 
@@ -96,7 +98,7 @@ func fillRemote(ctx context.Context, env Env, st *store.Store, rows []statusRow)
 		for k, i := range idx {
 			ids[k] = rows[i].ID
 		}
-		got, err := remoteHost(env, server).Status(ctx, ids...)
+		got, err := remoteStatus(ctx, env, server, ids)
 		found := map[string]bool{}
 		for _, g := range got {
 			for _, i := range idx {
@@ -186,4 +188,22 @@ func cmdResolve(ctx context.Context, env Env, args []string) error {
 			r.Proof = note
 		}
 	})
+}
+
+// remoteStatus asks roard on another host. It answers for every message it
+// holds, whether or not the recipient's session still exists.
+func remoteStatus(ctx context.Context, env Env, server string, ids []string) ([]remote.StatusRow, error) {
+	p, err := peerFor(ctx, env, server)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := p.Status(ctx, ids...)
+	out := make([]remote.StatusRow, 0, len(rows))
+	for _, r := range rows {
+		if r.State == "missing" {
+			continue
+		}
+		out = append(out, remote.StatusRow{ID: r.ID, State: r.State, Detail: cmp.Or(r.HoldReason, r.Reason), Proof: r.Proof, Boundary: r.Boundary})
+	}
+	return out, err
 }

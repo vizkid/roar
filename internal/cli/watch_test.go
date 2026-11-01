@@ -1,9 +1,9 @@
 package cli
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
-	"os/exec"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -11,18 +11,6 @@ import (
 	"github.com/vizkid/roar/internal/rextest"
 	"github.com/vizkid/roar/internal/store"
 )
-
-// selfBuild builds roar for commands that start a watcher, and gives them a
-// relay session of their own so tests never touch roar-relay.
-func (h *harness) selfBuild() {
-	h.t.Helper()
-	h.self = filepath.Join(h.t.TempDir(), "roar")
-	if b, err := exec.Command("go", "build", "-o", h.self, "../../cmd/roar").CombinedOutput(); err != nil {
-		h.t.Fatalf("build: %v %s", err, b)
-	}
-	h.relay = rextest.Label("relay")
-	h.t.Cleanup(func() { exec.Command("rex", "kill", h.relay).Run() })
-}
 
 func eventually(t *testing.T, within time.Duration, what string, ok func() bool) {
 	t.Helper()
@@ -35,12 +23,30 @@ func eventually(t *testing.T, within time.Duration, what string, ok func() bool)
 	}
 }
 
+// daemon runs roard on the harness's store, as the service manager would,
+// with its own client label so it never meets a real roard.
+func (h *harness) daemon() {
+	h.t.Helper()
+	vars := map[string]string{"ROAR_HOME": h.home, "ROAR_ROARD_LABEL": rextest.Label("roard"), "HOME": h.t.TempDir()}
+	var log bytes.Buffer
+	env := Env{Stdout: &log, Stderr: &log, Getenv: func(k string) string { return vars[k] }, Now: time.Now, Rex: h.rex}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- cmdDaemon(ctx, env, nil) }()
+	h.t.Cleanup(func() { cancel(); <-done })
+	st, err := store.Open(h.home)
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	eventually(h.t, 10*time.Second, "roard did not start", st.DaemonLive)
+}
+
 // The incident: an inform to a busy agent without a native adapter. The
-// send holds it and starts a watcher; the watcher delivers it when the
-// agent comes to rest, with no further command, and then exits.
-func TestSendStartsWatcherThatDeliversAndExits(t *testing.T) {
+// send holds it; roard delivers it when the agent comes to rest, with no
+// further command and no Rex block.
+func TestRoardDeliversHeldSend(t *testing.T) {
 	h := newHarness(t)
-	h.selfBuild()
+	h.daemon()
 	sender := h.pane("sender")
 	a, _ := h.agent("claude")
 	a.Control("working")
@@ -48,21 +54,33 @@ func TestSendStartsWatcherThatDeliversAndExits(t *testing.T) {
 	if code != 0 || !strings.Contains(out, `"hold_reason":"busy"`) {
 		t.Fatalf("held send: %d %s %s", code, out, errs)
 	}
+	if strings.Contains(errs, "roard_not_running") {
+		t.Fatalf("warned with roard running: %s", errs)
+	}
 	var res struct{ ID string }
 	json.Unmarshal([]byte(out), &res)
 	st, err := store.Open(h.home)
 	if err != nil {
 		t.Fatal(err)
 	}
-	eventually(t, 15*time.Second, "no watcher took watch.lock", func() bool { return !st.WatcherFree() })
-
 	a.Control("done")
-	eventually(t, 20*time.Second, "the watcher did not deliver", func() bool {
+	eventually(t, 20*time.Second, "roard did not deliver", func() bool {
 		m, _ := st.Get(res.ID)
 		return m.Record.State == store.Submitted
 	})
 	if got := a.Submitted(); len(got) != 1 || !strings.HasSuffix(got[0], "\nwhile you work") {
 		t.Fatalf("agent received %q", got)
 	}
-	eventually(t, 45*time.Second, "the watcher did not exit", st.WatcherFree)
+}
+
+// 52: with no roard, a held message says it waits for one.
+func TestHeldSendWarnsWithoutRoard(t *testing.T) {
+	h := newHarness(t)
+	sender := h.pane("sender")
+	a, _ := h.agent("claude")
+	a.Control("working")
+	code, _, errs := h.run(sender, "", "send", a.Label, "later")
+	if code != 0 || !strings.Contains(errs, "roard_not_running") {
+		t.Fatalf("held send without roard: %d %s", code, errs)
+	}
 }

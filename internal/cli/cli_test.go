@@ -25,7 +25,7 @@ type harness struct {
 	home string
 	rex  rex.Client
 	bin  string // test agent build, made on first use
-	// self and relay let a command start a watcher; empty means it starts none.
+	// self is the roar binary for commands that need one; empty means none.
 	self, relay string
 }
 

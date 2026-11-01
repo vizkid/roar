@@ -58,6 +58,7 @@ var commands = map[string]command{
 	"enqueue":  cmdEnqueue,
 	"setup":    cmdSetup,
 	"install":  cmdInstall,
+	"daemon":   cmdDaemon,
 }
 
 const usage = `usage: roar <command> [args]
@@ -74,7 +75,8 @@ const usage = `usage: roar <command> [args]
   setup                      add Roar to every Claude and Codex config root in $HOME
   install [--binary <path>] <host-label>   copy this roar, or another platform's build, to
                              ~/.local/bin on another Rex host, then run setup there
-  enqueue --sha256 <digest>  receive a message from another host (Roar runs this itself)
+  daemon                     roard: watch held messages and answer other hosts (the service manager runs it)
+  enqueue --sha256 <digest>  receive a message from another host (older senders; Roar runs it itself)
   mcp                        the Claude adapter (Claude starts it; do not run it yourself)
   hook codex                 the Codex SessionStart hook (Codex runs it; do not run it yourself)
   bind agy                   in Antigravity: let Roar deliver to this session directly

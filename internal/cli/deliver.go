@@ -1,18 +1,15 @@
 package cli
 
 import (
-	"cmp"
 	"context"
 	"flag"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"syscall"
 
 	"github.com/vizkid/roar/internal/fallback"
 	"github.com/vizkid/roar/internal/ready"
-	"github.com/vizkid/roar/internal/remote"
 	"github.com/vizkid/roar/internal/rex"
 	"github.com/vizkid/roar/internal/store"
 )
@@ -31,23 +28,19 @@ func localRex(env Env) rex.Client {
 	return c
 }
 
-// startWatcher starts a watcher in a detached block when a held message
-// needs one and none runs. Callers write their holds first, so a watcher
-// that is stopping at the same moment still sees them.
+// startWatcher no longer starts anything: roard watches every held
+// message. When no roard runs, it says so, because a held message then
+// waits until roard starts. Starting a watcher block would bring back the
+// roar-relay session.
 func startWatcher(ctx context.Context, env Env, st *store.Store) error {
-	if env.Self == "" || !st.WatcherFree() {
+	if st.DaemonLive() {
 		return nil
 	}
 	if need, err := deliverer(env, st).NeedsWatcher(); err != nil || !need {
 		return err
 	}
-	c := localRex(env)
-	cmd := []string{"/usr/bin/env", "ROAR_HOME=" + st.Root()}
-	if bin, err := exec.LookPath(cmp.Or(c.Bin, "rex")); err == nil {
-		cmd = append(cmd, "REX_BIN_DIR="+filepath.Dir(bin))
-	}
-	cmd = append(cmd, env.Self, "deliver", "--watch", "--until-idle")
-	return remote.Host{Rex: c, Session: env.Relay}.Detach(ctx, "roar-watch", cmd)
+	fmt.Fprintln(env.Stderr, "roar: roard_not_running: held messages wait until roard starts (roar setup installs it)")
+	return nil
 }
 
 func cmdReady(ctx context.Context, env Env, args []string) error {

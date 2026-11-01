@@ -1,14 +1,13 @@
 package cli
 
 import (
+	"cmp"
 	"context"
-	"encoding/base64"
 	"errors"
 	"flag"
 	"fmt"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/vizkid/roar/internal/envelope"
 	"github.com/vizkid/roar/internal/remote"
@@ -69,45 +68,26 @@ func remoteHost(env Env, server string) remote.Host {
 	return remote.Host{Rex: c, Bin: env.Getenv("ROAR_REMOTE_BIN")}
 }
 
-// sendRemote hands the envelope to the recipient's host. A lost answer is
-// retried with the same envelope; the receiver dedupes by ID. Once one try
-// may have landed, every later failure leaves the outcome unknown.
+// sendRemote hands the envelope to roard on the recipient's host and
+// returns the first settled record. Peer retries, resumes and backs off;
+// once the message may have landed, a failure is ErrUnknown.
 func sendRemote(ctx context.Context, env Env, e envelope.Envelope, files map[string][]byte) (remote.Result, error) {
 	server := e.To.Endpoint
 	if server == "" {
 		return remote.Result{}, errors.New("no_route: the recipient has no Rex endpoint")
 	}
-	h := remoteHost(env, server)
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), sendBudget(files))
-	defer cancel()
-	var unknown error
-	for range 3 {
-		r, err := h.EnqueueWithFiles(ctx, e, files)
-		switch {
-		case err == nil:
-			return r, nil
-		case errors.Is(err, remote.ErrUnknown):
-			unknown = err
-		case unknown == nil:
-			return r, err
-		}
-		if ctx.Err() != nil {
-			break // a retry would fail at its first rex call
-		}
+	p, err := peerFor(ctx, env, server)
+	if err != nil {
+		return remote.Result{}, err
 	}
-	return remote.Result{}, unknown
-}
-
-// sendBudget is how long a remote send may take. Rex takes the payload in
-// Chunk-sized writes, one rex call each, and a loaded host needs about a
-// second per call. A 12 MiB attachment then takes minutes, more than the
-// two every command gets.
-func sendBudget(files map[string][]byte) time.Duration {
-	size := 0
-	for _, b := range files {
-		size += base64.StdEncoding.EncodedLen(len(b))
+	row, err := p.Send(context.WithoutCancel(ctx), e, files)
+	if errors.Is(err, remote.ErrNoRoard) {
+		return remote.Result{}, fmt.Errorf("roard_not_running: no roard answers on %s; roar install sets it up", server)
 	}
-	return 2*time.Minute + time.Duration(size/remote.Chunk)*time.Second
+	if err != nil && !errors.Is(err, remote.ErrUnknown) {
+		return remote.Result{}, err
+	}
+	return remote.Result{ID: e.ID, State: row.State, Reason: cmp.Or(row.HoldReason, row.Reason)}, err
 }
 
 // cmdInstall copies this roar binary, or the --binary build for another
