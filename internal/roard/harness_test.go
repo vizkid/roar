@@ -97,16 +97,21 @@ func (h *harness) start() {
 
 // sender is a Rex client that offers roar.result and collects calls to it.
 func (h *harness) sender(results chan<- Result) *rexctl.Client {
-	h.t.Helper()
-	o := rexctl.Options{Endpoint: h.ep, Info: rexctl.Info{Kind: "cli", Name: "roar-test"}}
-	if results != nil {
-		o.OnPerform = func(p rexctl.Perform) (any, *rexctl.Error) {
-			var r Result
-			json.Unmarshal(p.Args, &r)
-			results <- r
-			return "ok", nil
-		}
+	if results == nil {
+		return h.senderWith(nil)
 	}
+	return h.senderWith(func(p rexctl.Perform) (any, *rexctl.Error) {
+		var r Result
+		json.Unmarshal(p.Args, &r)
+		results <- r
+		return "ok", nil
+	})
+}
+
+// senderWith answers roar.result with handle; nil offers no action.
+func (h *harness) senderWith(handle func(rexctl.Perform) (any, *rexctl.Error)) *rexctl.Client {
+	h.t.Helper()
+	o := rexctl.Options{Endpoint: h.ep, Info: rexctl.Info{Kind: "cli", Name: "roar-test"}, OnPerform: handle}
 	ctx, cancel := context.WithTimeout(h.t.Context(), 10*time.Second)
 	defer cancel()
 	c, err := rexctl.Dial(ctx, o)
@@ -114,7 +119,7 @@ func (h *harness) sender(results chan<- Result) *rexctl.Client {
 		h.t.Fatal(err)
 	}
 	h.t.Cleanup(c.Close)
-	if results != nil {
+	if handle != nil {
 		if err := c.Declare(ctx, rextest.Label("sender"), []rexctl.Action{{Name: "roar.result"}}); err != nil {
 			h.t.Fatal(err)
 		}

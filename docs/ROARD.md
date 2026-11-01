@@ -1,6 +1,6 @@
 # roard: one Roar service per host
 
-Owner: Viz. Updated: 2026-11-01. Status: draft proposal, not ratified. Nothing here is built yet. When it is built, these sections replace the parts of [SPEC.md](SPEC.md) that they name.
+Owner: Viz. Updated: 2026-11-01. Status: built on `main` and tested locally and against Baroni's and Colonelk's Rex servers; not yet installed on any host; not ratified. When it is installed, these sections replace the parts of [SPEC.md](SPEC.md) that they name.
 
 ## Problem and solution
 
@@ -113,7 +113,7 @@ roard offers these client actions. Their names start with `roar.`, because Rex r
 
 ## Sending a message
 
-1. The sender connects, and calls `roar.hello`.
+1. The sender connects. It offers `roar.result` and resolves `roard` in one round trip, with both calls in flight. It needs no `roar.hello`: the part size follows from the welcome's message limit, because the sender and roard use the same Rex server.
 2. It calls `roar.subscribe` with the message ID. This comes first, so no change can fall between enqueue and subscribe. A new ID answers with no record.
 3. If the envelope and its files fit in one part, it calls `roar.enqueue`. Otherwise it uploads, as below, then calls `roar.upload.commit`.
 4. A worker checks the digest, stores the message, and runs one delivery pass. roard publishes each committed change to the subscription, with a revision that only grows.
@@ -125,7 +125,7 @@ The receiver dedupes by message ID. A second enqueue or commit of a stored ID re
 ### Uploads
 
 - **One encoding layer.** The envelope travels as JSON. Each file travels separately as raw bytes, base64 once inside a part. A 12 MiB file is about 16 MiB on the wire.
-- **Part size.** `roar.hello` answers `max_part`: 768 KiB of base64 when the welcome allows 1 MiB messages, which leaves room for the JSON around it and for Rex's forwarded event. So a 12 MiB file takes about 22 parts.
+- **Part size.** At most three quarters of the welcome's `max_message_bytes`: 768 KiB of base64 when the server allows 1 MiB messages, which leaves room for the JSON around it and for Rex's forwarded event. So a 12 MiB file takes 22 parts. `roar.hello` reports the same value as `max_part`.
 - **One part in flight per upload.** The sender sends the next part after the last one's reply. Other senders' small requests stay fast, because each part's handler only appends and records.
 - **Resumable.** `roar.upload.begin` is keyed by message ID, so calling it again returns the same upload and its committed offsets. A repeated part whose bytes match returns the committed offset. A part that conflicts is refused with `upload_conflict`. After a lost reply the sender calls `roar.upload.begin` again and continues from the committed offsets.
 - **Durable.** roard keeps each upload under `uploads/<upload>/` in the store, mode 0700 with 0600 files, with its metadata. An upload survives a roard restart.
@@ -151,16 +151,15 @@ The watcher keeps its rules from SPEC.md: the same proof, the same states, and t
 
 | Event | Source | What roard does |
 | --- | --- | --- |
-| A record is created or changes | Filesystem events on the store's active message directories | Reads the record. If it needs the watcher, roard adds it to the pending set and schedules an attempt for its pane. |
-| A new message directory appears | A filesystem event on the box directory | Adds a watch on it, then reads it |
+| A record is created or changes | A filesystem event in the store's `notify/` directory. Every `Put` and every state change leaves an empty `notify/<id>` file after the change is durable. | Takes every mark, removing each before it reads the record, so a change made in between leaves a new mark. Publishes the record to subscribers. If it needs the watcher, roard adds its pane to the pending set and schedules an attempt. |
 | An agent's status changes | Rex `block_event`: `program_status_changed`, `program_status_removed` | Schedules an attempt for that pane if it has pending work |
 | A pane's process changes or ends | Rex `block_event`: `process_changed`, `child_exited` | Schedules an attempt; a dead pane settles its messages |
 | A pane or session closes | Rex `block_closed`, `session_destroyed` | Settles that pane's pending messages at once |
 | roard starts or reconnects, or the filesystem watcher reports an overflow or error | roard itself | Reconciles: reads every active record and every pending pane |
 
-- **Subscribe before snapshot.** roard sends `session.attach_all` and starts its filesystem watches before it reads the store, so a change made while it reads still produces an event. A change seen twice is applied once, by record revision.
+- **Subscribe before snapshot.** roard sends `session.attach_all` and starts its filesystem watch before it reads the store, so a change made while it reads still produces an event. A change seen twice is applied once, by record revision.
 - **Coalesce.** Several events for one pane within 50 ms schedule one attempt.
-- **Watch only active work.** roard watches the directories of messages that are not yet in a final state, plus the box directories. A host's history adds no watches.
+- **One watch.** roard watches only `notify/`, not each message's directory. On macOS kqueue opens every file of a watched directory, and a launchd agent gets 256 descriptors by default. A mark left while no roard runs waits until roard starts, and pruning a message removes its mark.
 - **Event scope.** `event_scope` `all` is required, because `block_event` carries agent status. roard filters by pane, so events for panes without pending work cost one map lookup. Rex offers no narrower scope.
 
 ### What still needs a timer
@@ -169,6 +168,7 @@ Two gaps have no event, so while work in one of them is pending, one timer cover
 
 - **A lock owner dies.** When a native adapter or an old watcher holding a pane or `watch.lock` dies, the lock is released without any filesystem event.
 - **Composer readiness after the agent rests.** Rex reports program status, not the composer's contents. A pane can rest with a draft that clears later without a status change.
+- **A writer from an older Roar.** A Claude adapter started before this change keeps running the old binary, which leaves no notify mark. While a subscribed message is not final, the same timer reads it.
 
 While any pending message is in one of these gaps, roard re-checks those messages every 30 seconds. With no such message, no timer runs.
 
@@ -268,7 +268,7 @@ Who reads each key: **S** is the sender, **D** is roard, **C** is any command.
 
 | Key | Default | `slow` | Read by | What it controls |
 | --- | --- | --- | --- | --- |
-| `sender.connect.timeout` | 10s | 45s | S | Opening the WebSocket and getting the welcome |
+| `sender.connect.timeout` | 10s | 45s | S | Floor of the deadline for opening the WebSocket and getting the welcome, two round trips. The deadline follows the last known round trip, and each failed try multiplies the floor by `sender.connect.factor`. |
 | `sender.connect.initial` | 500ms | 2s | S | Reconnect backoff |
 | `sender.connect.factor` | 2 | 2 | S | Reconnect backoff |
 | `sender.connect.max` | 30s | 2m | S | Reconnect backoff |
@@ -282,8 +282,8 @@ Who reads each key: **S** is the sender, **D** is roard, **C** is any command.
 | `sender.print_deadline` | 15s | 60s | S | Print the latest state after this |
 | `sender.transfer.base` | 2m | 10m | S | The whole send's deadline before upload time |
 | `sender.transfer.min_rate` | 256KiB/s | 16KiB/s | S | Upload time added to the deadline. Each acknowledged part extends it. |
-| `sender.upload.part_size` | 768KiB | 128KiB | S | Base64 bytes per part, capped by `max_part` from `roar.hello`. Smaller parts lose less on a dropped link. |
-| `sender.upload.in_flight` | 1 | 1 | S | Parts sent before the first reply |
+| `sender.upload.part_size` | 768KiB | 128KiB | S | Base64 bytes per part, capped at three quarters of the server's message limit. Smaller parts lose less on a dropped link. |
+| `sender.upload.in_flight` | 1 | 1 | S | Parts outstanding at once, in order on one connection. Raise it for a clean slow link; keep 1 for one that drops: see Evidence. |
 | `roard.rex.reconnect.initial` | 1s | 1s | D | Backoff to the local Rex server |
 | `roard.rex.reconnect.factor` | 2 | 2 | D | |
 | `roard.rex.reconnect.max` | 30s | 30s | D | |
@@ -321,8 +321,13 @@ Who reads each key: **S** is the sender, **D** is roard, **C** is any command.
 | `claude.grace` | 2s | 2s | C | Inherited |
 | `claude.request_gap` | 30s | 30s | C | Inherited |
 | `codex.deliver_timeout` | 15s | 15s | C, D | Inherited |
+| `agy.deliver_timeout` | 15s | 15s | C, D | Inherited: one `agentapi send-message` call |
 
-`delivery.*`, `claude.*` and `codex.*` act on this host's own panes, so `slow` leaves them alone. A slow link between hosts does not make a local paste slower.
+`delivery.*`, `claude.*`, `codex.*` and `agy.*` act on this host's own panes, so `slow` leaves them alone. A slow link between hosts does not make a local paste slower. Each command reads them when it starts; roard reads them only when it starts, because changing them under running deliveries would race, and it logs that a change needs a restart.
+
+### Latency between commands
+
+Each command's sender measures the smoothed round trip to the host it talks to and keeps it in `<store>/rtt/<hash of the endpoint>`. The next command to that host starts from it, so its first deadlines, including the connect deadline, already fit the link.
 
 ### Example
 
@@ -366,7 +371,7 @@ Setup is not a roard action, because it restarts roard.
 
 **Stiletto sends a 12 MiB file to an idle Claude on Baroni.**
 `roar send --file big.bin claude@stance "see attached"` resolves the pane through Baroni's Rex server, as today.
-It opens one control connection to Baroni's server, finds the client `roard`, and calls `roar.hello` and `roar.subscribe`.
+It opens one control connection to Baroni's server, offers `roar.result`, finds the client `roard`, and calls `roar.subscribe`.
 It calls `roar.upload.begin`, then 22 `roar.upload.part` calls of 768 KiB, then `roar.upload.commit`.
 A worker on Baroni checks the digest and stores the message. roard calls `roar.result` with the record, `queued`.
 The worker's delivery pass finds Claude's channel connected, so the record becomes `accepted`, then `read`. roard calls `roar.result` for each change.
@@ -403,6 +408,29 @@ These are the tests to write first. They extend the numbered list in SPEC.md.
 66. A sender's `hints` set roard's callback deadline and give-up time for that sender, within the caps.
 67. `roar config set` and `unset` keep the file's other lines and comments.
 
+| Criteria | Tests |
+| --- | --- |
+| 42, 43 | `TestOneRoardPerStore` |
+| 44 | `TestSessionReconnectsAndRunsSetup`, `TestSessionBacksOffOnDialFailure` (`internal/rexctl`); live run |
+| 45 | `TestCallerCheck` |
+| 46, 50 | `TestEnqueueCallsBackEachChange`, `TestPeerSendSettlesByCallback` |
+| 47 | `TestUploadRoundTrip`, `TestUploadRefusesConflictsAndGaps`, `TestUploadCommitChecksDigest`, `TestPeerSendsLargeAttachmentInFewParts` |
+| 48 | `TestUploadResumes`, `TestPeerResumesAfterDrop`, `TestPeerSurvivesSlowLossyLink` |
+| 49 | `TestDuplicateEnqueueIsCovered` |
+| 51 | `TestPeerResumesAfterDrop`; live run |
+| 52 | `TestHeldSendWarnsWithoutRoard`, `TestStoredMessageWakesWatcher` |
+| 53 | `TestRoardDeliversHeldSend`, `TestRexEventRouting` |
+| 54 | `TestGapTimerOnlyWhenNeeded` |
+| 55 | `TestPeerWithoutRoard` |
+| 56 | `TestStatusJob`, `TestPeerStatus` |
+| 57 | `TestServiceDarwin`, `TestServiceLinux` |
+| 58 | `TestRetiresRelay` |
+| 59 | live run |
+| 60–64 | `internal/config`: `TestDefaultsWithoutFile`, `TestPrecedence`, `TestUnknownKeyWarnsBadValueFails`, `TestBackoffSequence`, `TestBackoffJitterRange`; 63 in the live run |
+| 65 | `TestDeadlineFollowsLatency`, `TestPeerSmallSendOverSlowLink`, `TestPeerFirstSendOverVerySlowLink` |
+| 66 | `TestCallbackHintsSetGiveUp` |
+| 67 | `TestSetKeepsComments`, `TestConfigCommand` |
+
 The live run on Stiletto, Baroni and Colonelk reports, for a small send and for a 12 MiB send: process spawns, control calls, encoded bytes, median and 95th-percentile latency, handler time, queue wait, and idle wakeups per hour.
 
 ## Evidence
@@ -416,6 +444,10 @@ The live run on Stiletto, Baroni and Colonelk reports, for a small send and for 
 | Baroni and Colonelk support it | Both servers list `client.keymap`, `client.perform`, `client.reply` and `client.set_label`. roard itself has not run on Linux yet. |
 | Terminal events | The local server's terminal block type lists `program_status_changed`, `program_status_removed`, `process_changed` and `child_exited`. `block_event` arrives only with `event_scope` `all`. |
 | A block data connection cannot carry an upload | The reference's "Data Connections" section: bytes flow only from the server to the client. |
+| Sends survive a slow, dropping link | `TestPeerSurvivesSlowLossyLink` (`ROAR_SLOW=1`), 2026-11-01: a proxy in front of the local Rex socket delays every chunk 1 s each way and cuts each connection after about 1 MiB. 4 MiB with `in_flight` 1: 2 min 13 s, 6 drops, 5.4 MB sent, file intact. With `in_flight` 4: 6 min 50 s, 17 drops, 13.2 MB sent: a deep window loses the whole batch at each drop. A small send over the 2 s round trip settles in 20 s with default settings. |
+| A first send needs no learned round trip | `TestPeerFirstSendOverVerySlowLink` (`ROAR_SLOW=1`): over a 4 s round trip with a 3 s connect floor, tries of 3 s and 6 s fail and the 12 s one connects; the send settles in 38 s. |
+| roard delivers a held send with no other command | `TestRoardDeliversHeldSend` (`internal/cli`): a test agent that reports `working` holds an inform as `busy`; when it reports `done`, roard's watcher submits it, woken by Rex's `program_status_changed` on its own connection. |
+| 12 MiB in few calls | `TestPeerSendsLargeAttachmentInFewParts`: 22 parts and 28 calls in all, where the CLI path needed about 456 writes. |
 | A windowless session still shows as a project | Viz checked the Rex sidebar on 2026-11-01. |
 | The API reference | Each Rex server serves it at `GET /llms.txt` (`curl --unix-socket <socket> http://localhost/llms.txt`). The public docs do not cover client actions. |
 
@@ -423,12 +455,13 @@ The live run on Stiletto, Baroni and Colonelk reports, for a small send and for 
 
 | Question | Recommendation |
 | --- | --- |
+| Rex closes a new connection whose hello arrives more than 5 s after it opened. The hello can leave only after the upgrade reply arrives, so it reaches the server one round trip later. No Rex client, the `rex` CLI included, can open a connection over a round trip of about 5 s or more. | A Rex change: a longer or configurable hello deadline. Roar cannot work around it without a persistent connection that outlives the spike. Connections already open survive slower links. Seen 2026-11-01: 4 s round trip opens in 8 s; 5 s and 12 s fail before the welcome. |
 | What part size works best? | Start at 768 KiB, one part in flight. Measure small-send latency during a large upload before raising either. |
 | Should a remote send fall back to a detached block when roard is down? | No. That brings `roar-relay` back and hides a broken service. Refuse with `roard_not_running`. |
 | Can Codex daemon notifications replace the stale-turn recheck? | Unknown. Roar's Codex client ignores notifications today. Test them before relying on them. |
 | Does the Rex app show a connected `roard` client anywhere? | Not seen in the prototype. Check during the live run. |
-| Which TOML library? | `github.com/BurntSushi/toml` for reading. `roar config set` edits the file line by line, so comments survive. Roar has no TOML dependency today. |
-| How to test slow links? | Add delay on the loopback or Tailscale interface: `dnctl` and `pfctl` on macOS, `tc netem` on Linux. Criterion 65 uses this. |
+| Which TOML library? | Settled: `github.com/BurntSushi/toml` v1.6.0 reads the file; `roar config set` edits it line by line, so comments survive. |
+| How to test slow links? | Settled: a proxy in front of the Rex socket (`internal/remote/lossy_test.go`) adds latency per chunk and cuts connections. Interface tools such as `dnctl` or `tc netem` need root. |
 | Should Roar tune itself, for example switch to `slow` when `srtt` stays high? | Not in this pass. The latency rule already stretches deadlines. Measure first, then decide. |
 
 ## Related documents
