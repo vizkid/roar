@@ -31,6 +31,7 @@ func (s *Store) Prune(now time.Time) error {
 			return err
 		}
 		os.Remove(filepath.Join(s.root, "ids", m.Envelope.ID))
+		os.Remove(filepath.Join(s.NotifyDir(), m.Envelope.ID))
 		err = os.RemoveAll(m.Dir)
 		c.Release()
 		if err != nil {

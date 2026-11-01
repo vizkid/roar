@@ -60,7 +60,7 @@ func DefaultRoot() (string, error) {
 
 // Open creates the directory layout if needed.
 func Open(root string) (*Store, error) {
-	for _, d := range []string{"box", "ids", "sent", "adapters", "codex", "agy", "panes", "tmp"} {
+	for _, d := range []string{"box", "ids", "sent", "adapters", "codex", "agy", "panes", "tmp", "notify"} {
 		if err := os.MkdirAll(filepath.Join(root, d), 0o700); err != nil {
 			return nil, err
 		}
@@ -111,7 +111,7 @@ func (s *Store) PutWithFiles(e envelope.Envelope, now time.Time, files map[strin
 	if err := writeJSON(filepath.Join(tmp, "envelope.json"), e); err != nil {
 		return false, err
 	}
-	first := Record{State: Queued, UpdatedAt: now}
+	first := Record{State: Queued, UpdatedAt: now, Revision: 1}
 	first.note()
 	if err := writeJSON(filepath.Join(tmp, "state.json"), first); err != nil {
 		return false, err
@@ -134,6 +134,7 @@ func (s *Store) PutWithFiles(e envelope.Envelope, now time.Time, files map[strin
 	if err := os.Symlink(filepath.Join("..", "box", e.To.Block, e.ID), link); err != nil && !os.IsExist(err) {
 		return false, err
 	}
+	s.notify(e.ID)
 	return false, nil
 }
 

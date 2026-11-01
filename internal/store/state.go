@@ -44,6 +44,9 @@ func (s State) Final() bool {
 type Record struct {
 	State     State     `json:"state"`
 	UpdatedAt time.Time `json:"updated_at"`
+	// Revision grows by one on every write, so a reader that sees a change
+	// twice applies it once.
+	Revision int64 `json:"revision,omitempty"`
 	// HoldReason explains why a queued message is waiting.
 	HoldReason string `json:"hold_reason,omitempty"`
 	// Reason explains an expired or unknown message.

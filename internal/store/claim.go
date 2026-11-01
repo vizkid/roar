@@ -12,8 +12,9 @@ import (
 
 // Claim is exclusive ownership of one message for the length of an attempt.
 type Claim struct {
-	lock *os.File
-	msg  Message
+	lock  *os.File
+	msg   Message
+	store *Store
 }
 
 // Claim locks a message. It returns ErrBusy when another process holds it.
@@ -32,7 +33,7 @@ func (s *Store) Claim(id string) (*Claim, error) {
 		unlock(f)
 		return nil, err
 	}
-	return &Claim{lock: f, msg: m}, nil
+	return &Claim{lock: f, msg: m, store: s}, nil
 }
 
 // Message is the claimed message as of the last change.
@@ -56,11 +57,13 @@ func (c *Claim) Move(to State, now time.Time, edit func(*Record)) error {
 	if to == Read || to == Submitted {
 		r.Reason = "" // an earlier retry's error no longer describes the message
 	}
+	r.Revision++
 	r.note()
 	if err := writeJSON(filepath.Join(c.msg.Dir, "state.json"), r); err != nil {
 		return err
 	}
 	c.msg.Record = r
+	c.store.notify(c.msg.Envelope.ID)
 	return nil
 }
 
