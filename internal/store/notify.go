@@ -46,3 +46,29 @@ func (s *Store) TakeNotified() ([]string, error) {
 	}
 	return ids, nil
 }
+
+// DaemonLock marks the live roard. One runs per store.
+type DaemonLock struct{ f *os.File }
+
+// HoldDaemon takes roard.lock. ErrBusy means another roard runs.
+func (s *Store) HoldDaemon() (*DaemonLock, error) {
+	f, err := tryLock(filepath.Join(s.root, "roard.lock"))
+	if err != nil {
+		return nil, err
+	}
+	return &DaemonLock{f: f}, nil
+}
+
+// Release lets another roard start.
+func (l *DaemonLock) Release() error { return unlock(l.f) }
+
+// DaemonLive reports whether a roard holds roard.lock. It costs one flock,
+// so a command can check it after every hold.
+func (s *Store) DaemonLive() bool {
+	l, err := s.HoldDaemon()
+	if err != nil {
+		return true
+	}
+	l.Release()
+	return false
+}
