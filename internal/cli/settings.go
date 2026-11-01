@@ -7,7 +7,11 @@ import (
 	"runtime/debug"
 	"strings"
 
+	"github.com/vizkid/roar/internal/agy"
+	"github.com/vizkid/roar/internal/claude"
+	"github.com/vizkid/roar/internal/codex"
 	"github.com/vizkid/roar/internal/config"
+	"github.com/vizkid/roar/internal/fallback"
 	"github.com/vizkid/roar/internal/remote"
 )
 
@@ -103,4 +107,30 @@ func version() string {
 		}
 	}
 	return cmp.Or(rev, info.Main.Version, "unknown") + dirty
+}
+
+// timings are the settings in force for this command's own host: the
+// defaults until applyTimings reads the file.
+var timings, _, _ = config.Load(config.Options{})
+
+// applyTimings reads the settings once per command and sets the delivery
+// timers inherited from before the config file existed. A bad file stops
+// the command, except roar config, which must be able to fix it, and the
+// Codex hook, which must never fail Codex.
+func applyTimings(env Env, command string) error {
+	s, err := loadSettings(env, "")
+	if err != nil {
+		if command != "config" && command != "hook" {
+			return err
+		}
+		s, _, _ = config.Load(config.Options{})
+	}
+	timings = s
+	fallback.PasteWait = s.Duration("delivery.paste_wait")
+	fallback.PasteCheck = s.Duration("delivery.paste_check")
+	fallback.SubmitWait = s.Duration("delivery.submit_wait")
+	claude.RequestGap = s.Duration("claude.request_gap")
+	codex.DeliverTimeout = s.Duration("codex.deliver_timeout")
+	agy.DeliverTimeout = s.Duration("agy.deliver_timeout")
+	return nil
 }

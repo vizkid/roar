@@ -56,6 +56,7 @@ var commands = map[string]command{
 	"setup":    cmdSetup,
 	"install":  cmdInstall,
 	"daemon":   cmdDaemon,
+	"config":   cmdConfig,
 }
 
 const usage = `usage: roar <command> [args]
@@ -72,6 +73,7 @@ const usage = `usage: roar <command> [args]
   setup                      add Roar to every Claude and Codex config root in $HOME
   install [--binary <path>] <host-label>   copy this roar, or another platform's build, to
                              ~/.local/bin on another Rex host, then run setup there
+  config [get|set|unset|profile|check] [--host <label>]   show or change timers, limits and backoff
   daemon                     roard: watch held messages and answer other hosts (the service manager runs it)
   enqueue --sha256 <digest>  receive a message from another host (older senders; Roar runs it itself)
   mcp                        the Claude adapter (Claude starts it; do not run it yourself)
@@ -93,6 +95,10 @@ func Main(args []string, env Env) int {
 	cmd, ok := commands[args[0]]
 	if !ok {
 		fmt.Fprintf(env.Stderr, "roar: unknown_command: %q\n%s", args[0], usage)
+		return exitRefused
+	}
+	if err := applyTimings(env, args[0]); err != nil {
+		fmt.Fprintf(env.Stderr, "roar: config: %v\n", err)
 		return exitRefused
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)

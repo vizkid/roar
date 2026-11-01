@@ -16,7 +16,7 @@ import (
 )
 
 // SubmitWait is how long to wait for the agent to start a turn after Enter.
-const SubmitWait = 5 * time.Second
+var SubmitWait = 5 * time.Second // delivery.submit_wait
 
 // Deliverer runs fallback attempts against one host's store and Rex server.
 type Deliverer struct {

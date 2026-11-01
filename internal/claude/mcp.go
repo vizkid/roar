@@ -41,7 +41,7 @@ type Status struct {
 
 // RequestGap bounds how long a request waits for a report newer than the
 // last request, in case Claude never reacts to that one.
-const RequestGap = 30 * time.Second
+var RequestGap = 30 * time.Second // claude.request_gap
 
 // instructions stay short: the roar skill teaches the agent to answer.
 const instructions = `Messages from other agents arrive as <channel source="roar"> blocks. Use the roar skill to answer them.`

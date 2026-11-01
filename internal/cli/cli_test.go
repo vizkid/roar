@@ -262,3 +262,38 @@ func TestDottedHostPrefixIsEndpoint(t *testing.T) {
 		t.Fatalf("block ID split: %q %q", host, rest)
 	}
 }
+
+// roar config edits the file and shows each value's source.
+func TestConfigCommand(t *testing.T) {
+	home := t.TempDir()
+	vars := map[string]string{"HOME": home, "ROAR_HOME": t.TempDir()}
+	run := func(args ...string) (int, string, string) {
+		var out, errb bytes.Buffer
+		code := Main(append([]string{"config"}, args...), Env{Stdout: &out, Stderr: &errb, Getenv: func(k string) string { return vars[k] }, Now: time.Now})
+		return code, out.String(), errb.String()
+	}
+	if code, out, _ := run(); code != 0 || !strings.Contains(out, "sender.call.timeout") || !strings.Contains(out, "default") {
+		t.Fatalf("list: %d %s", code, out)
+	}
+	if code, _, errs := run("set", "sender.call.timeout", "25s", "--host", "Baroni"); code != 0 {
+		t.Fatalf("set: %d %s", code, errs)
+	}
+	if code, out, _ := run("get", "sender.call.timeout", "--host", "Baroni"); code != 0 || strings.TrimSpace(out) != "25s" {
+		t.Fatalf("get for Baroni: %d %q", code, out)
+	}
+	if _, out, _ := run("get", "sender.call.timeout"); strings.TrimSpace(out) != "10s" {
+		t.Fatalf("get without host: %q", out)
+	}
+	if code, _, _ := run("set", "sender.call.timeout", "soon"); code == 0 {
+		t.Fatal("bad value accepted")
+	}
+	vars["ROAR_SET"] = "sender.call.timeout=1s"
+	if _, out, _ := run(); !strings.Contains(out, "ROAR_SET") {
+		t.Fatalf("list does not name ROAR_SET:\n%s", out)
+	}
+	delete(vars, "ROAR_SET")
+	os.WriteFile(filepath.Join(home, ".config", "roar", "config.toml"), []byte(`"sender.call.timeout" = "nope"`), 0o600)
+	if code, _, errs := run("check"); code != exitRefused || !strings.Contains(errs, "sender.call.timeout") {
+		t.Fatalf("check of a bad file: %d %s", code, errs)
+	}
+}

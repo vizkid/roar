@@ -46,6 +46,8 @@ func cmdMCP(ctx context.Context, env Env, _ []string) error {
 		Now:    env.Now,
 		Writer: fmt.Sprintf("mcp:%d:%d", os.Getpid(), time.Now().UnixNano()),
 		Log:    env.Stderr,
+		Poll:   timings.Duration("claude.poll"),
+		Grace:  timings.Duration("claude.grace"),
 	}
 	return claude.Serve(watchContext(ctx), cfg, env.Stdin, env.Stdout)
 }

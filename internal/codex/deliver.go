@@ -9,7 +9,7 @@ import (
 )
 
 // DeliverTimeout bounds one delivery, from dial to the turn call's result.
-const DeliverTimeout = 15 * time.Second
+var DeliverTimeout = 15 * time.Second // codex.deliver_timeout
 
 // Deliver sends one claimed, queued message to the bound thread. It returns
 // false when it sent nothing and left the message queued, so the caller may

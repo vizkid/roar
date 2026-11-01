@@ -100,13 +100,14 @@ var keys = []Key{
 	{Name: "install.ready_check", Kind: KindDuration, Default: "100ms", Slow: "500ms", Host: true, Doc: "Bootstrap only: how often install reads the screen for ROAR-READY"},
 	{Name: "install.ready_timeout", Kind: KindDuration, Default: "20s", Slow: "2m", Host: true, Doc: "Bootstrap only"},
 
-	{Name: "delivery.paste_check", Kind: KindDuration, Default: "100ms", Doc: "Inherited: paste proof checks"},
-	{Name: "delivery.paste_wait", Kind: KindDuration, Default: "2s", Doc: "Inherited: how long the paste may take to show"},
-	{Name: "delivery.submit_wait", Kind: KindDuration, Default: "5s", Doc: "Inherited: how long a submit may take to show"},
-	{Name: "claude.poll", Kind: KindDuration, Default: "250ms", Doc: "Inherited: the Claude adapter's loop"},
-	{Name: "claude.grace", Kind: KindDuration, Default: "2s", Doc: "Inherited: Claude adapter grace"},
-	{Name: "claude.request_gap", Kind: KindDuration, Default: "30s", Doc: "Inherited: Claude adapter request gap"},
-	{Name: "codex.deliver_timeout", Kind: KindDuration, Default: "15s", Doc: "Inherited: one Codex daemon call"},
+	{Name: "delivery.paste_check", Kind: KindDuration, Default: "100ms", Restart: true, Doc: "Inherited: paste proof checks"},
+	{Name: "delivery.paste_wait", Kind: KindDuration, Default: "2s", Restart: true, Doc: "Inherited: how long the paste may take to show"},
+	{Name: "delivery.submit_wait", Kind: KindDuration, Default: "5s", Restart: true, Doc: "Inherited: how long a submit may take to show"},
+	{Name: "claude.poll", Kind: KindDuration, Default: "250ms", Restart: true, Doc: "Inherited: the Claude adapter's loop"},
+	{Name: "claude.grace", Kind: KindDuration, Default: "2s", Restart: true, Doc: "Inherited: Claude adapter grace"},
+	{Name: "claude.request_gap", Kind: KindDuration, Default: "30s", Restart: true, Doc: "Inherited: Claude adapter request gap"},
+	{Name: "codex.deliver_timeout", Kind: KindDuration, Default: "15s", Restart: true, Doc: "Inherited: one Codex daemon call"},
+	{Name: "agy.deliver_timeout", Kind: KindDuration, Default: "15s", Restart: true, Doc: "Inherited: one agentapi send-message call"},
 }
 
 var byName = func() map[string]Key {

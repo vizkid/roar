@@ -8,8 +8,12 @@ import (
 	"github.com/vizkid/roar/internal/rex"
 )
 
-// PasteWait is how long a mid-turn paste may take to show in the composer.
-const PasteWait = 2 * time.Second
+// PasteWait is how long a mid-turn paste may take to show in the composer
+// (delivery.paste_wait). PasteCheck is how often it looks (delivery.paste_check).
+var (
+	PasteWait  = 2 * time.Second
+	PasteCheck = 100 * time.Millisecond
+)
 
 // pasteShown waits for the composer to hold the message whose header
 // starts with head. A mid-turn submit is proved by the composer emptying,
@@ -78,7 +82,7 @@ func poll(ctx context.Context, wait time.Duration, check func() bool) bool {
 		select {
 		case <-ctx.Done():
 			return false
-		case <-time.After(100 * time.Millisecond):
+		case <-time.After(PasteCheck):
 		}
 	}
 	return false

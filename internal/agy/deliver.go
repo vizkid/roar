@@ -14,7 +14,7 @@ import (
 )
 
 // DeliverTimeout bounds one `agentapi send-message` call.
-const DeliverTimeout = 15 * time.Second
+var DeliverTimeout = 15 * time.Second // agy.deliver_timeout
 
 // Deliver sends one claimed, queued message to the bound conversation.
 // boundary is "turn" for an agy at rest and "mid_turn" for a working one.
