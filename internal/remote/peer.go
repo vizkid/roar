@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/vizkid/roar/internal/config"
@@ -23,7 +24,8 @@ var (
 // Stats counts what one Peer sent, for tests and the live report.
 type Stats struct {
 	Calls     map[string]int
-	PartBytes int64 // raw attachment bytes sent in parts
+	PartBytes int64 // raw attachment bytes roard acknowledged
+	SentBytes int64 // raw attachment bytes sent, counting parts lost to a drop
 }
 
 func (s Stats) Total() int {
@@ -44,7 +46,24 @@ type Peer struct {
 	Stats    Stats
 
 	afterPart func(*rexctl.Client, int) // test hook
+	mu        sync.Mutex
 	rtt       config.RTT
+}
+
+// SeedRTT starts the smoothed round trip from an earlier command's, so the
+// first deadlines already fit a slow link.
+func (p *Peer) SeedRTT(d time.Duration) {
+	if d > 0 {
+		p.rtt.Alpha = p.Settings.Float("sender.call.rtt_alpha")
+		p.rtt.Observe(d)
+	}
+}
+
+// SRTT is the smoothed round trip measured so far.
+func (p *Peer) SRTT() time.Duration {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.rtt.SRTT()
 }
 
 // link is one open connection to roard.
@@ -69,9 +88,10 @@ func (p *Peer) dial(ctx context.Context) (*link, error) {
 		p.rtt.Alpha = s.Float("sender.call.rtt_alpha")
 	}
 	results := make(chan roard.Result, 256)
-	dctx, cancel := context.WithTimeout(ctx, s.Duration("sender.connect.timeout"))
-	defer cancel()
-	c, err := rexctl.Dial(dctx, rexctl.Options{Endpoint: p.Endpoint, Info: rexctl.Info{Kind: "cli", Name: "roar"},
+	// Opening takes two round trips: the WebSocket handshake, then hello and
+	// welcome. The deadline follows the last known round trip, so a 20 s
+	// link gets time to open, and the open itself gives the first sample.
+	open := rexctl.Options{Endpoint: p.Endpoint, Info: rexctl.Info{Kind: "cli", Name: "roar"},
 		OnPerform: func(pf rexctl.Perform) (any, *rexctl.Error) {
 			var r roard.Result
 			if pf.Action != "roar.result" || json.Unmarshal(pf.Args, &r) != nil {
@@ -82,27 +102,35 @@ func (p *Peer) dial(ctx context.Context) (*link, error) {
 			default: // the store is authoritative; a resubscribe reads it
 			}
 			return "ok", nil
-		}})
+		}}
+	connect := config.Deadline{Timeout: s.Duration("sender.connect.timeout"), RTTFactor: s.Float("sender.call.rtt_factor")}
+	dctx, cancel := context.WithTimeout(ctx, connect.For(p.SRTT()))
+	t0 := time.Now()
+	c, err := rexctl.Dial(dctx, open)
+	cancel()
 	if err != nil {
 		return nil, err
 	}
-	l := &link{c: c, results: results}
-	err = c.Declare(dctx, "", []rexctl.Action{{Name: "roar.result", Title: "Roar: result"}})
-	if err == nil {
-		l.roard, err = c.Resolve(dctx, p.label())
+	if p.rtt.SRTT() == 0 {
+		p.rtt.Observe(time.Since(t0) / 2)
+	}
+	// The part size follows from the server's message limit, which the
+	// welcome already gave: no hello needed. Offering roar.result and finding
+	// roard go out together, one round trip on a slow link instead of two.
+	l := &link{c: c, results: results, maxPart: c.MaxMessage() * 3 / 4}
+	cctx, cancel := context.WithTimeout(ctx, s.Deadline("sender.call").For(p.SRTT()))
+	defer cancel()
+	declared := make(chan error, 1)
+	go func() { declared <- c.Declare(cctx, "", []rexctl.Action{{Name: "roar.result", Title: "Roar: result"}}) }()
+	l.roard, err = c.Resolve(cctx, p.label())
+	if derr := <-declared; err == nil {
+		err = derr
 	}
 	switch {
 	case errors.Is(err, rexctl.ErrNoClient):
 		err = ErrNoRoard
 	case errors.Is(err, rexctl.ErrAmbiguous):
 		err = ErrRoardAmbiguous
-	}
-	if err == nil {
-		var hello struct {
-			MaxPart int `json:"max_part"`
-		}
-		err = p.call(ctx, l, "roar.hello", nil, &hello)
-		l.maxPart = hello.MaxPart
 	}
 	if err != nil {
 		c.Close()
@@ -114,25 +142,60 @@ func (p *Peer) dial(ctx context.Context) (*link, error) {
 // call runs one action with a deadline from the smoothed round trip.
 func (p *Peer) call(ctx context.Context, l *link, action string, args, out any) error {
 	s := p.Settings
-	cctx, cancel := context.WithTimeout(ctx, s.Deadline("sender.call").For(p.rtt.SRTT()))
+	cctx, cancel := context.WithTimeout(ctx, s.Deadline("sender.call").For(p.SRTT()))
 	defer cancel()
+	p.mu.Lock()
 	if p.Stats.Calls == nil {
 		p.Stats.Calls = map[string]int{}
 	}
 	p.Stats.Calls[action]++
+	p.mu.Unlock()
 	t0 := time.Now()
 	err := l.c.Perform(cctx, l.roard, action, args, s.Duration("sender.call.remote_timeout"), out)
 	if err == nil {
+		p.mu.Lock()
 		p.rtt.Observe(time.Since(t0))
+		p.mu.Unlock()
 	}
 	return err
+}
+
+// start sends one call without waiting, for parts kept in flight. finish
+// waits for it with the same latency-scaled deadline as call.
+func (p *Peer) start(l *link, action string, args any) (func(context.Context, any) error, error) {
+	p.mu.Lock()
+	if p.Stats.Calls == nil {
+		p.Stats.Calls = map[string]int{}
+	}
+	p.Stats.Calls[action]++
+	p.mu.Unlock()
+	t0 := time.Now()
+	wait, err := l.c.StartPerform(l.roard, action, args, p.Settings.Duration("sender.call.remote_timeout"))
+	if err != nil {
+		return nil, err
+	}
+	return func(ctx context.Context, out any) error {
+		err := wait(ctx, out)
+		if err == nil {
+			p.mu.Lock()
+			p.rtt.Observe(time.Since(t0))
+			p.mu.Unlock()
+		}
+		return err
+	}, nil
+}
+
+func (p *Peer) finish(ctx context.Context, wait func(context.Context, any) error, out any) error {
+	cctx, cancel := context.WithTimeout(ctx, p.Settings.Deadline("sender.call").For(p.SRTT()))
+	defer cancel()
+	return wait(cctx, out)
 }
 
 // hints tell roard how patient to be when calling this sender back.
 func (p *Peer) hints() roard.Hints {
 	s := p.Settings
 	return roard.Hints{
-		CallbackTimeoutMS: s.Deadline("sender.call").For(p.rtt.SRTT()).Milliseconds(),
+		CallbackTimeoutMS: s.Deadline("sender.call").For(p.SRTT()).Milliseconds(),
 		CallbackGiveUpMS:  (s.Duration("sender.print_deadline") + s.Duration("sender.transfer.base")).Milliseconds(),
 	}
 }

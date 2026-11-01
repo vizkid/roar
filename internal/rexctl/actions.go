@@ -7,10 +7,13 @@ import (
 	"time"
 )
 
-// Declare sets this client's label and lists the actions it offers.
+// Declare sets this client's label, unless it is empty, and lists the
+// actions it offers.
 func (c *Client) Declare(ctx context.Context, label string, actions []Action) error {
-	if err := c.Call(ctx, "client.set_label", map[string]string{"label": label}, nil); err != nil {
-		return err
+	if label != "" {
+		if err := c.Call(ctx, "client.set_label", map[string]string{"label": label}, nil); err != nil {
+			return err
+		}
 	}
 	list := make([]map[string]any, len(actions))
 	for i, a := range actions {
@@ -60,20 +63,35 @@ func (c *Client) Resolve(ctx context.Context, label string) (string, error) {
 // queue, at most 30s. ctx bounds the caller's whole wait, which also covers
 // the network and the queue.
 func (c *Client) Perform(ctx context.Context, clientID, action string, args any, timeout time.Duration, out any) error {
+	wait, err := c.StartPerform(clientID, action, args, timeout)
+	if err != nil {
+		return err
+	}
+	return wait(ctx, out)
+}
+
+// StartPerform sends a Perform and returns a function that waits for it.
+func (c *Client) StartPerform(clientID, action string, args any, timeout time.Duration) (func(ctx context.Context, out any) error, error) {
 	req := map[string]any{"client_id": clientID, "action": action, "timeout_ms": min(timeout, 30*time.Second).Milliseconds()}
 	if args != nil {
 		req["args"] = args
 	}
-	var res struct {
-		Result json.RawMessage `json:"result"`
+	wait, err := c.Start("client.perform", req)
+	if err != nil {
+		return nil, err
 	}
-	if err := c.Call(ctx, "client.perform", req, &res); err != nil {
-		return err
-	}
-	if out != nil && len(res.Result) > 0 {
-		return json.Unmarshal(res.Result, out)
-	}
-	return nil
+	return func(ctx context.Context, out any) error {
+		var res struct {
+			Result json.RawMessage `json:"result"`
+		}
+		if err := wait(ctx, &res); err != nil {
+			return err
+		}
+		if out != nil && len(res.Result) > 0 {
+			return json.Unmarshal(res.Result, out)
+		}
+		return nil
+	}, nil
 }
 
 // perform answers one request with OnPerform's result. A client with no

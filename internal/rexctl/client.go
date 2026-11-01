@@ -229,6 +229,17 @@ func (c *Client) send(v any) error {
 // Call runs one method and decodes its result into out, which may be nil.
 // A failed call returns *Error.
 func (c *Client) Call(ctx context.Context, method string, payload, out any) error {
+	wait, err := c.Start(method, payload)
+	if err != nil {
+		return err
+	}
+	return wait(ctx, out)
+}
+
+// Start writes one request and returns at once with a function that waits
+// for its response. Requests go out in the order Start is called, so a
+// caller can keep several in flight on one connection without reordering.
+func (c *Client) Start(method string, payload any) (func(ctx context.Context, out any) error, error) {
 	if payload == nil {
 		payload = map[string]any{}
 	}
@@ -236,42 +247,48 @@ func (c *Client) Call(ctx context.Context, method string, payload, out any) erro
 	c.mu.Lock()
 	if c.err != nil {
 		c.mu.Unlock()
-		return c.err
+		return nil, c.err
 	}
 	c.next++
 	id := strconv.FormatInt(c.next, 10)
 	c.pending[id] = ch
 	c.mu.Unlock()
-	defer func() {
+	forget := func() {
 		c.mu.Lock()
 		delete(c.pending, id)
 		c.mu.Unlock()
-	}()
+	}
 	msg, err := json.Marshal(map[string]any{"type": "request", "id": id, "method": method, "payload": payload})
 	if err != nil {
-		return err
+		forget()
+		return nil, err
 	}
 	// The server closes a connection that sends a message over its limit, so
 	// refuse it here and keep the connection.
 	if len(msg) > c.max {
-		return fmt.Errorf("%w: %d bytes, limit %d", ErrTooLarge, len(msg), c.max)
+		forget()
+		return nil, fmt.Errorf("%w: %d bytes, limit %d", ErrTooLarge, len(msg), c.max)
 	}
 	if err := c.send(json.RawMessage(msg)); err != nil {
+		forget()
 		c.fail(fmt.Errorf("rex control write: %w", err))
-		return c.Err()
+		return nil, c.Err()
 	}
-	select {
-	case r := <-ch:
-		if r.Error != nil {
-			return r.Error
+	return func(ctx context.Context, out any) error {
+		defer forget()
+		select {
+		case r := <-ch:
+			if r.Error != nil {
+				return r.Error
+			}
+			if out != nil && len(r.Payload) > 0 {
+				return json.Unmarshal(r.Payload, out)
+			}
+			return nil
+		case <-c.done:
+			return c.Err()
+		case <-ctx.Done():
+			return ctx.Err()
 		}
-		if out != nil && len(r.Payload) > 0 {
-			return json.Unmarshal(r.Payload, out)
-		}
-		return nil
-	case <-c.done:
-		return c.Err()
-	case <-ctx.Done():
-		return ctx.Err()
-	}
+	}, nil
 }

@@ -81,6 +81,7 @@ func sendRemote(ctx context.Context, env Env, e envelope.Envelope, files map[str
 		return remote.Result{}, err
 	}
 	row, err := p.Send(context.WithoutCancel(ctx), e, files)
+	saveRTT(env, p)
 	if errors.Is(err, remote.ErrNoRoard) {
 		return remote.Result{}, fmt.Errorf("roard_not_running: no roard answers on %s; roar install sets it up", server)
 	}

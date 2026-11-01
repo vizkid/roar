@@ -198,6 +198,7 @@ func remoteStatus(ctx context.Context, env Env, server string, ids []string) ([]
 		return nil, err
 	}
 	rows, err := p.Status(ctx, ids...)
+	saveRTT(env, p)
 	out := make([]remote.StatusRow, 0, len(rows))
 	for _, r := range rows {
 		if r.State == "missing" {

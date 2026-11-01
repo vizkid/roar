@@ -203,6 +203,7 @@ func remotePanes(ctx context.Context, env Env, host string) ([]paneRow, error) {
 		return nil, err
 	}
 	raw, err := p.Panes(ctx)
+	saveRTT(env, p)
 	if err != nil {
 		return nil, err
 	}

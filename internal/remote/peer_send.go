@@ -21,6 +21,7 @@ type sendState struct {
 	committed bool // an enqueue or commit was sent, so the message may exist
 	last      roard.Row
 	deadline  time.Time
+	landed    int64 // attachment bytes roard reported committed, for progress
 }
 
 // Send hands e to roard and returns the first settled record, or the latest
@@ -104,7 +105,9 @@ func (p *Peer) handOver(ctx context.Context, l *link, st *sendState) error {
 	return p.call(ctx, l, "roar.upload.commit", map[string]any{"upload": "up-" + st.e.ID}, nil)
 }
 
-// upload sends each file from its committed offset, one part in flight.
+// upload sends each file from its committed offset, keeping in_flight
+// parts outstanding. They go out in order on one connection, and Rex hands
+// them to roard in that order, so each lands at the offset it names.
 func (p *Peer) upload(ctx context.Context, l *link, st *sendState, begin map[string]any) error {
 	var b struct {
 		Upload    string           `json:"upload"`
@@ -113,25 +116,59 @@ func (p *Peer) upload(ctx context.Context, l *link, st *sendState, begin map[str
 	if err := p.call(ctx, l, "roar.upload.begin", begin, &b); err != nil {
 		return err
 	}
+	s := p.Settings
+	// Parts can land while their replies are lost to a drop. begin shows
+	// them, and that progress extends the deadline like an acknowledgement.
+	var landed int64
+	for _, c := range b.Committed {
+		landed += c
+	}
+	if landed > st.landed {
+		st.landed = landed
+		st.deadline = maxTime(st.deadline, time.Now().Add(s.Duration("sender.transfer.base")))
+	}
 	// part_size is base64 bytes; capped so the request stays under the limit.
-	raw := int(min(p.Settings.Size("sender.upload.part_size"), int64(l.maxPart))) * 3 / 4
+	raw := int64(min(s.Size("sender.upload.part_size"), int64(l.maxPart))) * 3 / 4
+	window := max(1, s.Int("sender.upload.in_flight"))
+	type sent struct {
+		off  int64
+		wait func(context.Context, any) error
+	}
 	n := 0
 	for _, f := range st.e.Files {
 		data := st.files[f.Name]
-		for off := b.Committed[f.Name]; off < int64(len(data)); {
-			end := min(off+int64(raw), int64(len(data)))
+		next := b.Committed[f.Name]
+		var pending []sent
+		for next < int64(len(data)) || len(pending) > 0 {
+			for len(pending) < window && next < int64(len(data)) {
+				end := min(next+raw, int64(len(data)))
+				wait, err := p.start(l, "roar.upload.part", map[string]any{"upload": b.Upload, "file": f.Name, "offset": next,
+					"data": base64.StdEncoding.EncodeToString(data[next:end])})
+				if err != nil {
+					return err
+				}
+				pending = append(pending, sent{next, wait})
+				p.mu.Lock()
+				p.Stats.SentBytes += end - next
+				p.mu.Unlock()
+				next = end
+			}
+			head := pending[0]
+			pending = pending[1:]
 			var r struct {
 				Committed int64 `json:"committed"`
 			}
-			err := p.call(ctx, l, "roar.upload.part", map[string]any{"upload": b.Upload, "file": f.Name, "offset": off,
-				"data": base64.StdEncoding.EncodeToString(data[off:end])}, &r)
-			if err != nil {
+			if err := p.finish(ctx, head.wait, &r); err != nil {
+				for _, rest := range pending {
+					p.finish(ctx, rest.wait, nil) // drain; begin reports what landed
+				}
 				return err
 			}
-			p.Stats.PartBytes += r.Committed - off
-			off = r.Committed
+			p.mu.Lock()
+			p.Stats.PartBytes += max(0, r.Committed-head.off)
+			p.mu.Unlock()
 			// A moving upload never runs out of time.
-			st.deadline = maxTime(st.deadline, time.Now().Add(p.Settings.Duration("sender.transfer.base")))
+			st.deadline = maxTime(st.deadline, time.Now().Add(s.Duration("sender.transfer.base")))
 			n++
 			if p.afterPart != nil {
 				p.afterPart(l.c, n)
@@ -225,7 +262,7 @@ func (p *Peer) job(ctx context.Context, action string, args any) (roard.Result, 
 	if err := p.call(ctx, l, action, args, &j); err != nil {
 		return roard.Result{}, refusal(err)
 	}
-	wait := time.NewTimer(p.Settings.Deadline("sender.call").For(p.rtt.SRTT()) + p.Settings.Duration("sender.print_deadline"))
+	wait := time.NewTimer(p.Settings.Deadline("sender.call").For(p.SRTT()) + p.Settings.Duration("sender.print_deadline"))
 	defer wait.Stop()
 	for {
 		select {

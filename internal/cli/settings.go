@@ -3,9 +3,14 @@ package cli
 import (
 	"cmp"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	"os"
+	"path/filepath"
 	"runtime/debug"
 	"strings"
+	"time"
 
 	"github.com/vizkid/roar/internal/agy"
 	"github.com/vizkid/roar/internal/claude"
@@ -86,7 +91,37 @@ func peerFor(ctx context.Context, env Env, server string) (*remote.Peer, error) 
 	if err != nil {
 		return nil, err
 	}
-	return &remote.Peer{Endpoint: endpoint, Label: env.Getenv("ROAR_ROARD_LABEL"), Settings: s}, nil
+	p := &remote.Peer{Endpoint: endpoint, Label: env.Getenv("ROAR_ROARD_LABEL"), Settings: s}
+	if f, ok := rttFile(env, endpoint); ok {
+		if b, err := os.ReadFile(f); err == nil {
+			if d, err := time.ParseDuration(strings.TrimSpace(string(b))); err == nil {
+				p.SeedRTT(d) // the last command's round trip to this host
+			}
+		}
+	}
+	return p, nil
+}
+
+// rttFile keeps each host's smoothed round trip between commands, so the
+// first deadlines of the next one already fit a slow link.
+func rttFile(env Env, endpoint string) (string, bool) {
+	st, err := openStore(env)
+	if err != nil {
+		return "", false
+	}
+	sum := sha256.Sum256([]byte(endpoint))
+	return filepath.Join(st.Root(), "rtt", hex.EncodeToString(sum[:8])), true
+}
+
+// saveRTT records what this command measured.
+func saveRTT(env Env, p *remote.Peer) {
+	f, ok := rttFile(env, p.Endpoint)
+	if !ok || p.SRTT() == 0 {
+		return
+	}
+	if os.MkdirAll(filepath.Dir(f), 0o700) == nil {
+		os.WriteFile(f, []byte(p.SRTT().String()+"\n"), 0o600)
+	}
 }
 
 // version is this build's VCS revision, for roard's hello.
