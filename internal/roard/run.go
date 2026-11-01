@@ -34,7 +34,12 @@ func Run(ctx context.Context, d Deps) error {
 	sb := newSubs(cb)
 	w := newWatcher(ctx, d, sb, p)
 	defer w.stop()
-	srv := &server{d: d, subs: sb, cb: cb, pool: p, w: w, ctx: ctx}
+	up, err := newUploads(d)
+	if err != nil {
+		return err
+	}
+	defer up.stop()
+	srv := &server{d: d, subs: sb, cb: cb, pool: p, w: w, up: up, ctx: ctx}
 
 	sess := rexctl.Start(ctx, rexctl.SessionOptions{
 		Options: rexctl.Options{

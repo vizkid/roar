@@ -23,6 +23,9 @@ var actions = []rexctl.Action{
 	{Name: "roar.subscribe", Title: "Roar: subscribe", Description: "Current records, then each change by roar.result"},
 	{Name: "roar.unsubscribe", Title: "Roar: unsubscribe"},
 	{Name: "roar.enqueue", Title: "Roar: enqueue", Description: "Store a message from another host"},
+	{Name: "roar.upload.begin", Title: "Roar: begin upload", Description: "Start a message too large for one call, or resume it"},
+	{Name: "roar.upload.part", Title: "Roar: upload part"},
+	{Name: "roar.upload.commit", Title: "Roar: commit upload", Description: "Store an uploaded message"},
 	{Name: "roar.status", Title: "Roar: status", Description: "Records of messages held here, by roar.result"},
 	{Name: "roar.panes", Title: "Roar: panes", Description: "This host's panes, by roar.result"},
 }
@@ -35,6 +38,7 @@ type server struct {
 	cb   *callbacks
 	pool *pool
 	w    *watcher
+	up   *uploads
 	jobs atomic.Int64
 	ctx  context.Context
 }
@@ -92,6 +96,38 @@ func (s *server) dispatch(p rexctl.Perform) (any, *rexctl.Error) {
 		return map[string]any{"ok": true}, nil
 	case "roar.enqueue":
 		return s.enqueue(client, p.Args)
+	case "roar.upload.begin":
+		var a struct {
+			Envelope string `json:"envelope"`
+			SHA256   string `json:"sha256"`
+		}
+		if err := json.Unmarshal(p.Args, &a); err != nil {
+			return nil, badRequest(err)
+		}
+		return s.up.begin(a.Envelope, a.SHA256)
+	case "roar.upload.part":
+		var a struct {
+			Upload string `json:"upload"`
+			File   string `json:"file"`
+			Offset int64  `json:"offset"`
+			Data   string `json:"data"`
+		}
+		if err := json.Unmarshal(p.Args, &a); err != nil {
+			return nil, badRequest(err)
+		}
+		return s.up.part(a.Upload, a.File, a.Offset, a.Data)
+	case "roar.upload.commit":
+		var a struct {
+			Upload string `json:"upload"`
+		}
+		if err := json.Unmarshal(p.Args, &a); err != nil {
+			return nil, badRequest(err)
+		}
+		id, ok := uploadID(a.Upload)
+		if !ok {
+			return nil, badRequest(errBadUpload)
+		}
+		return s.job(client, func(job string) Result { return s.commit(job, id) })
 	case "roar.status":
 		var a struct {
 			IDs []string `json:"ids"`
@@ -204,4 +240,24 @@ func (s *server) store(job string, raw []byte, files map[string][]byte) Result {
 		s.w.cover(e.To.Block)
 	}
 	return Result{Job: job, Rows: []Row{rowOf(m)}}
+}
+
+// commit stores an uploaded message. A commit retried after the message was
+// stored returns the stored record; a damaged upload is deleted, so the
+// sender's next begin starts over.
+func (s *server) commit(job, id string) Result {
+	if m, err := s.d.Store.Get(id); err == nil {
+		s.up.remove(id)
+		s.w.cover(m.Envelope.To.Block)
+		return Result{Job: job, Rows: []Row{rowOf(m)}}
+	}
+	raw, files, err := s.up.contents(id)
+	if err != nil {
+		return Result{Job: job, Error: refused("upload_unknown: %s; it may have expired", id)}
+	}
+	r := s.store(job, []byte(raw), files)
+	if r.Error == nil || r.Error.Code == "refused" {
+		s.up.remove(id)
+	}
+	return r
 }

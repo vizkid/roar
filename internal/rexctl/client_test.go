@@ -124,6 +124,21 @@ func TestLargeMessage(t *testing.T) {
 	}
 }
 
+// A message over the server's limit is refused before it is sent, and the
+// connection stays up.
+func TestTooLargeKeepsConnection(t *testing.T) {
+	ep := local(t)
+	a, _, _ := echo(t, ep)
+	b := dial(t, ep, Options{})
+	err := b.Perform(t.Context(), a.ID(), "roar.test.echo", map[string]string{"text": strings.Repeat("z", b.MaxMessage())}, 5*time.Second, nil)
+	if !errors.Is(err, ErrTooLarge) {
+		t.Fatalf("err %v", err)
+	}
+	if err := b.Call(t.Context(), "server.status", nil, nil); err != nil {
+		t.Fatalf("connection lost: %v", err)
+	}
+}
+
 func TestEventsArrive(t *testing.T) {
 	ep := local(t)
 	got := make(chan Event, 64)

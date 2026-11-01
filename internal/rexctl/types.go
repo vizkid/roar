@@ -20,6 +20,7 @@ var (
 	ErrClosed    = errors.New("rex control connection closed")
 	ErrNoClient  = errors.New("no such rex client")
 	ErrAmbiguous = errors.New("several rex clients have that label")
+	ErrTooLarge  = errors.New("rex control message too large")
 )
 
 // Info is what a client says about itself, for showing to people.

@@ -247,7 +247,16 @@ func (c *Client) Call(ctx context.Context, method string, payload, out any) erro
 		delete(c.pending, id)
 		c.mu.Unlock()
 	}()
-	if err := c.send(map[string]any{"type": "request", "id": id, "method": method, "payload": payload}); err != nil {
+	msg, err := json.Marshal(map[string]any{"type": "request", "id": id, "method": method, "payload": payload})
+	if err != nil {
+		return err
+	}
+	// The server closes a connection that sends a message over its limit, so
+	// refuse it here and keep the connection.
+	if len(msg) > c.max {
+		return fmt.Errorf("%w: %d bytes, limit %d", ErrTooLarge, len(msg), c.max)
+	}
+	if err := c.send(json.RawMessage(msg)); err != nil {
 		c.fail(fmt.Errorf("rex control write: %w", err))
 		return c.Err()
 	}
