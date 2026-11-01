@@ -26,7 +26,7 @@ type harness struct {
 	rex  rex.Client
 	bin  string // test agent build, made on first use
 	// self is the roar binary for commands that need one; empty means none.
-	self, relay string
+	self string
 }
 
 func newHarness(t *testing.T) *harness {
@@ -51,7 +51,6 @@ func (h *harness) run(p pane, stdin string, args ...string) (code int, stdout, s
 		Now:    time.Now,
 		Rex:    h.rex,
 		Self:   h.self,
-		Relay:  h.relay,
 	})
 	return code, out.String(), errb.String()
 }

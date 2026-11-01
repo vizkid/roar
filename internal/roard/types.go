@@ -31,8 +31,14 @@ type Deps struct {
 	Label    string // the Rex client label; "roard" when empty
 	Delivery Delivery
 	Panes    func(ctx context.Context) (any, error)
-	UID      int
-	Logf     func(format string, args ...any)
+	// Foreground names the foreground program of a block, or "" for none.
+	// roard uses it to tell an idle shell from work. Nil skips retiring
+	// roar-relay.
+	Foreground func(ctx context.Context, session, block string) (string, error)
+	// RelayLabel overrides the session to retire, for tests.
+	RelayLabel string
+	UID        int
+	Logf       func(format string, args ...any)
 }
 
 func (d Deps) logf(format string, args ...any) {

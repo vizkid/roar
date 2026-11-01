@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -25,12 +26,16 @@ func cmdSetup(_ context.Context, env Env, args []string) error {
 		return err
 	}
 	home := env.Getenv("HOME")
+	svcErr := setupService(env, home, roar)
 	roots := setup.Find(home, env.Getenv)
 	if len(roots.Claude)+len(roots.Codex) == 0 {
 		fmt.Fprintf(env.Stdout, "no Claude or Codex config roots in %s\n", home)
-		return nil
+		return svcErr
 	}
 	err = setup.Run(env.Stdout, env.Stderr, home, roar, roots, claudeCLI(home))
+	if err == nil {
+		err = svcErr
+	}
 	fmt.Fprint(env.Stdout, `Claude loads the Roar channel only when started with --dangerously-load-development-channels server:roar.
 Codex runs the Roar hook only after you trust it: run /hooks once in each Codex home.
 `)
@@ -101,5 +106,43 @@ func cmdHook(ctx context.Context, env Env, args []string) error {
 		return nil
 	}
 	st.BindCodex(block, store.CodexBinding{Thread: in.SessionID, Session: session, CodexHome: home, PID: p.Foreground.PID, At: env.Now()})
+	return nil
+}
+
+// setupService installs and restarts roard. ROAR_SERVICE=none skips it, for
+// a host with no service manager.
+func setupService(env Env, home, roar string) error {
+	if env.Getenv("ROAR_SERVICE") == "none" {
+		return nil
+	}
+	if real, err := filepath.EvalSymlinks(roar); err == nil {
+		roar = real
+	}
+	s, err := loadSettings(env, "")
+	if err != nil {
+		return err
+	}
+	st, err := openStore(env)
+	if err != nil {
+		return err
+	}
+	rexDir := env.Getenv("REX_BIN_DIR")
+	if bin, err := exec.LookPath("rex"); rexDir == "" && err == nil {
+		rexDir = filepath.Dir(bin)
+	}
+	spec := setup.ServiceSpec{Home: home, Roar: roar, RexDir: rexDir, GOOS: runtime.GOOS, UID: os.Getuid(),
+		RestartDelay: s.Duration("roard.service.restart_delay"), Log: filepath.Join(st.Root(), "roard.err")}
+	got, err := setup.Service(spec, func(args ...string) error {
+		out, err := exec.Command(args[0], args[1:]...).CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("%v: %s", err, strings.TrimSpace(string(out)))
+		}
+		return nil
+	})
+	if err != nil {
+		fmt.Fprintf(env.Stderr, "roard: %v\n", err)
+		return err
+	}
+	fmt.Fprintf(env.Stdout, "roard service: %s (restarted)\n", got)
 	return nil
 }

@@ -26,6 +26,7 @@ func Run(ctx context.Context, d Deps) error {
 	defer lock.Release()
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
+	runCtx := ctx
 
 	s := d.Settings()
 	p := newPool(s.Int("roard.workers"))
@@ -40,12 +41,24 @@ func Run(ctx context.Context, d Deps) error {
 	}
 	defer up.stop()
 	srv := &server{d: d, subs: sb, cb: cb, pool: p, w: w, up: up, ctx: ctx}
+	rl := &relay{d: d}
+	var sess *rexctl.Session
+	onEvent := func(e rexctl.Event) {
+		w.rexEvent(e)
+		if (e.Type == "block_closed" || e.Type == "session_destroyed") && rl.known() {
+			p.submit(func() {
+				if c := sess.Current(); c != nil {
+					rl.check(ctx, c)
+				}
+			})
+		}
+	}
 
-	sess := rexctl.Start(ctx, rexctl.SessionOptions{
+	sess = rexctl.Start(ctx, rexctl.SessionOptions{
 		Options: rexctl.Options{
 			Endpoint:  d.Endpoint,
 			Info:      rexctl.Info{Kind: "other", Name: "roard", Version: d.Version, Label: d.Label},
-			OnEvent:   w.rexEvent,
+			OnEvent:   onEvent,
 			OnPerform: srv.perform,
 		},
 		Backoff:     s.Backoff("roard.rex.reconnect"),
@@ -60,6 +73,7 @@ func Run(ctx context.Context, d Deps) error {
 				return err
 			}
 			go w.reconcile()
+			go rl.check(runCtx, c) // not ctx: that one ends when Setup returns
 			d.logf("connected to %s as %s", d.Endpoint, c.ID())
 			return nil
 		},

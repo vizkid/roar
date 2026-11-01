@@ -4,6 +4,7 @@
 package remote
 
 import (
+	"cmp"
 	"context"
 	"encoding/base64"
 	"errors"
@@ -32,17 +33,16 @@ const (
 	Chunk = 48 << 10
 )
 
-// RelaySession labels the session that holds Roar's detached blocks on each
-// host. It is not "roar": a project named roar would have a session by that
-// label already.
-const RelaySession = "roar-relay"
+// InstallSession labels the windowless session install creates on a host
+// that has no session at all. It is destroyed when the call ends.
+const InstallSession = "roar-install"
 
 // Host is one Rex server that runs Roar.
 type Host struct {
 	Rex     rex.Client // Server is the host label or endpoint
 	Bin     string     // remote roar path; DefaultBin when empty
 	Env     []string   // extra environment for the remote command
-	Session string     // label of the session that holds detached blocks; RelaySession when empty
+	Session string     // label of the session for detached blocks; empty picks an existing one
 	Timeout time.Duration
 }
 
@@ -71,10 +71,11 @@ func shellQuote(s string) string {
 // command's ready marker, streams base64 input and the end marker, then
 // waits for the exit code. The block is closed before returning.
 func (h Host) run(ctx context.Context, command []string, input []byte, wait bool) (code int, screen string, err error) {
-	session, err := h.session(ctx)
+	session, done, err := h.session(ctx)
 	if err != nil {
 		return 0, "", err
 	}
+	defer done()
 	req := map[string]any{"session_id": session, "flavor": "com.superlogical.terminal.shell", "label": "roar", "options": map[string]any{
 		// login false: under /usr/bin/login the exit code is always 0.
 		"shell": "none", "login": false, "exit": map[string]any{"on_completion": false},
@@ -109,24 +110,6 @@ func (h Host) run(ctx context.Context, command []string, input []byte, wait bool
 		}
 	}
 	return h.finish(ctx, session, block, nil)
-}
-
-// Detach starts command in a detached block and returns without waiting.
-// The block closes when the command exits, even after a quick failure, so
-// it leaves nothing behind.
-func (h Host) Detach(ctx context.Context, label string, command []string) error {
-	session, err := h.session(ctx)
-	if err != nil {
-		return err
-	}
-	req := map[string]any{"session_id": session, "flavor": "com.superlogical.terminal.shell", "label": label, "options": map[string]any{
-		"shell": "none", "login": false, "command": command,
-		"exit": map[string]any{"on_completion": true, "quick_exit_threshold_ms": 0},
-	}}
-	var created struct {
-		BlockID string `json:"block_id"`
-	}
-	return h.Rex.JSON(ctx, &created, "api", "call", "session.new_block", mustJSON(req))
 }
 
 func (h Host) finish(ctx context.Context, session, block string, cause error) (int, string, error) {
@@ -165,25 +148,33 @@ func (h Host) waitFor(ctx context.Context, session, block, marker string) error 
 	return fmt.Errorf("%w: the remote command never became ready", ErrUnknown)
 }
 
-// session finds or creates the session that holds Roar's detached blocks.
-func (h Host) session(ctx context.Context) (string, error) {
-	label := h.Session
-	if label == "" {
-		label = RelaySession
-	}
+// session picks the session for a detached block: h.Session when set,
+// else the first session the host lists. A host with none gets a windowless
+// session that done destroys. A detached block shows in no window, so
+// borrowing a session adds nothing to the operator's view.
+func (h Host) session(ctx context.Context) (id string, done func(), err error) {
 	ss, err := h.Rex.Sessions(ctx)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	for _, s := range ss {
-		if s.Label == label {
-			return s.ID, nil
+		if h.Session == "" || s.Label == h.Session {
+			return s.ID, func() {}, nil
 		}
 	}
+	label := cmp.Or(h.Session, InstallSession)
 	var out struct {
 		SessionID string `json:"session_id"`
 	}
-	return out.SessionID, h.Rex.JSON(ctx, &out, "new", label, "--json")
+	if err := h.Rex.JSON(ctx, &out, "api", "call", "session.create", mustJSON(map[string]string{"label": label})); err != nil {
+		return "", nil, err
+	}
+	if h.Session != "" {
+		return out.SessionID, func() {}, nil // a named session is the caller's to keep
+	}
+	return out.SessionID, func() {
+		h.Rex.Run(context.WithoutCancel(ctx), "api", "call", "session.destroy", mustJSON(map[string]string{"session_id": out.SessionID}))
+	}, nil
 }
 
 func wrap76(s string) string {

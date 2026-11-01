@@ -50,7 +50,15 @@ func cmdDaemon(ctx context.Context, env Env, args []string) error {
 		HostID: w.HostID, Version: version(), Label: env.Getenv("ROAR_ROARD_LABEL"),
 		Delivery: blockDelivery{d, logf},
 		Panes:    func(ctx context.Context) (any, error) { return localPanes(ctx, env) },
-		UID:      os.Getuid(), Logf: logf,
+		Foreground: func(ctx context.Context, session, block string) (string, error) {
+			p, err := localRex(env).Process(ctx, session, block)
+			if err != nil || p.Foreground == nil {
+				return "", err
+			}
+			return p.Foreground.Name, nil
+		},
+		RelayLabel: env.Getenv("ROAR_RELAY_LABEL"), // tests keep roard away from the real roar-relay
+		UID:        os.Getuid(), Logf: logf,
 	})
 }
 

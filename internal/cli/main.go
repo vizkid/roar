@@ -28,9 +28,6 @@ type Env struct {
 	Rex    rex.Client
 	// Self is this roar binary, which a watcher runs. Empty starts no watcher.
 	Self string
-	// Relay labels the session that holds the watcher's block; empty means
-	// remote.RelaySession.
-	Relay string
 }
 
 // Exit codes shared by every command.

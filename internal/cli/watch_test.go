@@ -27,7 +27,8 @@ func eventually(t *testing.T, within time.Duration, what string, ok func() bool)
 // with its own client label so it never meets a real roard.
 func (h *harness) daemon() {
 	h.t.Helper()
-	vars := map[string]string{"ROAR_HOME": h.home, "ROAR_ROARD_LABEL": rextest.Label("roard"), "HOME": h.t.TempDir()}
+	vars := map[string]string{"ROAR_HOME": h.home, "ROAR_ROARD_LABEL": rextest.Label("roard"),
+		"ROAR_RELAY_LABEL": rextest.Label("relay"), "HOME": h.t.TempDir()}
 	var log bytes.Buffer
 	env := Env{Stdout: &log, Stderr: &log, Getenv: func(k string) string { return vars[k] }, Now: time.Now, Rex: h.rex}
 	ctx, cancel := context.WithCancel(context.Background())
