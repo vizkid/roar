@@ -71,9 +71,7 @@ type blockDelivery struct {
 func (b blockDelivery) Block(ctx context.Context, block string) {
 	if out, err := b.d.Block(ctx, block); err != nil {
 		b.logf("deliver %s: %v", block, err)
-	} else if out != nil && out.Reason != "claimed_elsewhere" {
-		// A send delivers itself while roard wakes on its notify mark;
-		// skipping that claim is the normal case, not news.
+	} else if out != nil {
 		b.logf("deliver %s: %s %s %s", block, out.ID, out.State, out.Reason)
 	}
 }

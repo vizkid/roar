@@ -85,3 +85,60 @@ func TestHeldSendWarnsWithoutRoard(t *testing.T) {
 		t.Fatalf("held send without roard: %d %s", code, errs)
 	}
 }
+
+// Live, 2026-11-02: after the first held message went out, the rest stayed
+// queued through the agent's next rest.
+func TestRoardDeliversEachHeldSendInTurn(t *testing.T) {
+	h := newHarness(t)
+	h.daemon()
+	sender := h.pane("sender")
+	a, _ := h.agent("claude")
+	a.Control("working")
+	var ids []string
+	for _, text := range []string{"one", "two", "three"} {
+		code, out, errs := h.run(sender, "", "send", "--json", a.Label, text)
+		if code != 0 {
+			t.Fatalf("send: %d %s %s", code, out, errs)
+		}
+		var res struct{ ID string }
+		json.Unmarshal([]byte(out), &res)
+		ids = append(ids, res.ID)
+	}
+	st, err := store.Open(h.home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range ids {
+		a.Control("done")
+		eventually(t, 20*time.Second, "roard did not deliver "+id, func() bool {
+			m, _ := st.Get(id)
+			return m.Record.State == store.Submitted
+		})
+		a.Control("working")
+	}
+}
+
+// A held message for a pane that closes expires on block_closed, with no
+// other wake-up.
+func TestRoardExpiresHeldSendWhenPaneCloses(t *testing.T) {
+	h := newHarness(t)
+	h.daemon()
+	sender := h.pane("sender")
+	a, _ := h.agent("claude")
+	a.Control("working")
+	code, out, errs := h.run(sender, "", "send", "--json", a.Label, "hello")
+	if code != 0 {
+		t.Fatalf("send: %d %s %s", code, out, errs)
+	}
+	var res struct{ ID string }
+	json.Unmarshal([]byte(out), &res)
+	st, err := store.Open(h.home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.Control("exit") // the block ran only the agent, so it closes
+	eventually(t, 20*time.Second, "roard did not expire the message", func() bool {
+		m, _ := st.Get(res.ID)
+		return m.Record.State == store.Expired
+	})
+}

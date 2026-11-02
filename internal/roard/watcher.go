@@ -237,6 +237,9 @@ func (w *watcher) rexEvent(e rexctl.Event) {
 		w.mu.Lock()
 		pending := w.pending[p.BlockID]
 		w.mu.Unlock()
+		if e.Type == "block_closed" {
+			w.d.logf("block_closed %s pending=%v", p.BlockID, pending)
+		}
 		if pending {
 			w.schedule(p.BlockID)
 		}
