@@ -101,7 +101,7 @@ func Main(args []string, env Env) int {
 		fmt.Fprintf(env.Stderr, "roar: config: %v\n", err)
 		return exitRefused
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	ctx, cancel := commandContext(args[0])
 	defer cancel()
 	err := cmd(ctx, env, args[1:])
 	var silent silentExit
@@ -114,6 +114,16 @@ func Main(args []string, env Env) int {
 		fmt.Fprintf(env.Stderr, "roar: %v\n", err)
 		return exitRefused
 	}
+}
+
+// commandContext bounds a command at two minutes. A service runs until the
+// service manager stops it, so it gets no deadline, only SIGINT and SIGTERM;
+// unlike watchContext, its caller can still cancel it.
+func commandContext(name string) (context.Context, context.CancelFunc) {
+	if name == "daemon" {
+		return signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	}
+	return context.WithTimeout(context.Background(), 2*time.Minute)
 }
 
 // watchContext drops the command deadline and ends on SIGINT or SIGTERM.

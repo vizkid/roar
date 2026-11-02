@@ -1,6 +1,6 @@
 # roard: one Roar service per host
 
-Owner: Viz. Updated: 2026-11-01. Status: built on `main` and tested locally and against Baroni's and Colonelk's Rex servers; not yet installed on any host; not ratified. When it is installed, these sections replace the parts of [SPEC.md](SPEC.md) that they name.
+Owner: Viz. Updated: 2026-11-02. Status: built on `main` and installed as a service on Stiletto, Baroni and Colonelk on 2026-11-02; all three `roar-relay` sessions are retired; not ratified. When it is installed, these sections replace the parts of [SPEC.md](SPEC.md) that they name.
 
 ## Problem and solution
 
@@ -137,7 +137,7 @@ The receiver dedupes by message ID. A second enqueue or commit of a stored ID re
 | Failure | Outcome |
 | --- | --- |
 | Rex resolves no client labelled `roard` on that host | `<id> refused roard_not_running`. Nothing was stored, so the outcome is known. |
-| Rex resolves several | `<id> refused roard_ambiguous` |
+| Rex resolves several | The sender asks `client.list` and uses the one that is not `lost`. Rex keeps a dropped client listed as `lost` for up to 60 s, so a restarted roard would otherwise share its label with its own old client. With several connected, `<id> refused roard_ambiguous`. roard sends a WebSocket close frame when it stops, so a clean restart leaves no `lost` client at all. |
 | The connection drops, or a call fails with `client_unavailable` or `timeout`, before any `roar.enqueue` or `roar.upload.commit` was sent | The sender reconnects and resumes. If it cannot within the deadline, it prints `refused` with the reason. |
 | The same, after an enqueue or commit was sent | The sender reconnects and calls `roar.subscribe`. If the record exists, it prints it. If roard cannot be reached within the deadline, it prints `<id> unknown remote_outcome_unknown`. A later error never turns that unknown into a refusal. |
 
@@ -449,6 +449,8 @@ The live run on Stiletto, Baroni and Colonelk reports, for a small send and for 
 | roard delivers a held send with no other command | `TestRoardDeliversHeldSend` (`internal/cli`): a test agent that reports `working` holds an inform as `busy`; when it reports `done`, roard's watcher submits it, woken by Rex's `program_status_changed` on its own connection. |
 | 12 MiB in few calls | `TestPeerSendsLargeAttachmentInFewParts`: 22 parts and 28 calls in all, where the CLI path needed about 456 writes. |
 | A windowless session still shows as a project | Viz checked the Rex sidebar on 2026-11-01. |
+| roard runs as a service on all three hosts | Installed 2026-11-02. On each host roard closed the idle `roar-relay` shell and destroyed the session within a second of starting. `roar panes Baroni` from Stiletto answered through roard in 0.56 s. On Colonelk roard ran beside 59 local sends; every one reached `submitted`. |
+| A service needs no command deadline | The first install exposed it: every command ran under a 2-minute deadline, so launchd restarted roard every 120 s, and each restart left a `lost` client that made senders fail with `roard_ambiguous`. `TestServiceCommandsHaveNoDeadline`, `TestResolveSkipsLostClient` and `TestCloseLeavesAtOnce` pin the three fixes. |
 | The API reference | Each Rex server serves it at `GET /llms.txt` (`curl --unix-socket <socket> http://localhost/llms.txt`). The public docs do not cover client actions. |
 
 ## Open questions

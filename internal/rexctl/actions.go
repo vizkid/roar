@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"time"
 )
 
@@ -36,10 +37,9 @@ func (c *Client) Declare(ctx context.Context, label string, actions []Action) er
 func (c *Client) Resolve(ctx context.Context, label string) (string, error) {
 	var out struct {
 		Results []struct {
-			Status string `json:"status"`
-			Target struct {
-				ClientID string `json:"client_id"`
-			} `json:"target"`
+			Status     string      `json:"status"`
+			Target     candidate   `json:"target"`
+			Candidates []candidate `json:"candidates"`
 		} `json:"results"`
 	}
 	if err := c.Call(ctx, "target.resolve", map[string]any{"queries": []string{label}, "kinds": []string{"client"}}, &out); err != nil {
@@ -52,10 +52,46 @@ func (c *Client) Resolve(ctx context.Context, label string) (string, error) {
 	case "resolved":
 		return r.Target.ClientID, nil
 	case "ambiguous":
-		return "", ErrAmbiguous
+		ids := make([]string, 0, len(r.Candidates))
+		for _, cand := range r.Candidates {
+			if cand.Kind == "client" {
+				ids = append(ids, cand.ClientID)
+			}
+		}
+		return c.connected(ctx, ids)
 	default:
 		return "", ErrNoClient
 	}
+}
+
+type candidate struct {
+	Kind     string `json:"kind"`
+	ClientID string `json:"client_id"`
+}
+
+// connected picks the one candidate with a live connection. A client that
+// dropped stays listed as lost for up to 60 s, so a restarted service would
+// otherwise share its label with its own ghost.
+func (c *Client) connected(ctx context.Context, ids []string) (string, error) {
+	var out struct {
+		Clients []struct {
+			ClientID        string `json:"client_id"`
+			ConnectionState string `json:"connection_state"`
+		} `json:"clients"`
+	}
+	if err := c.Call(ctx, "client.list", nil, &out); err != nil {
+		return "", err
+	}
+	var live []string
+	for _, cl := range out.Clients {
+		if slices.Contains(ids, cl.ClientID) && cl.ConnectionState != "lost" {
+			live = append(live, cl.ClientID)
+		}
+	}
+	if len(live) != 1 {
+		return "", ErrAmbiguous
+	}
+	return live[0], nil
 }
 
 // Perform calls another client's action. timeout is Rex's timeout_ms: how
