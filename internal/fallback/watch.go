@@ -18,18 +18,46 @@ const CatchUp = 2 * time.Second
 
 // Block attempts the oldest queued message for one pane. One per pass: a
 // delivered message starts a turn, so the next would only be held as busy.
+// While the oldest stays held, the rest are held as behind.
 func (d *Deliverer) Block(ctx context.Context, block string) (*Outcome, error) {
 	msgs, err := d.Store.Inbox(block)
 	if err != nil {
 		return nil, err
 	}
+	var head *Outcome
 	for _, m := range msgs {
-		if m.Record.State == store.Queued {
-			out, err := d.Attempt(ctx, m.Envelope.ID)
-			return &out, err
+		if m.Record.State != store.Queued {
+			continue
 		}
+		if head == nil {
+			out, err := d.Attempt(ctx, m.Envelope.ID)
+			// An adapter takes every queued message itself, and a claimed one
+			// is moving; neither leaves the rest waiting on the fallback.
+			if err != nil || out.State != store.Queued || out.Reason == "claimed_elsewhere" || out.Reason == "native_adapter" {
+				return &out, err
+			}
+			head = &out
+			continue
+		}
+		d.holdBehind(m)
 	}
-	return nil, nil
+	return head, nil
+}
+
+// holdBehind gives a message queued behind a held one the reason behind, so
+// its sender learns at once that it waits. It goes out after the one ahead.
+func (d *Deliverer) holdBehind(m store.Message) {
+	if m.Record.HoldReason == "behind" {
+		return
+	}
+	c, err := d.Store.Claim(m.Envelope.ID)
+	if err != nil {
+		return // busy: its own sender is moving it
+	}
+	defer c.Release()
+	if c.Message().Record.State == store.Queued {
+		d.hold(c, "behind")
+	}
 }
 
 // All runs one pass over every pane with queued messages.

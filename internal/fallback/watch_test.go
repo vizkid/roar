@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/vizkid/roar/internal/agenttest"
 	"github.com/vizkid/roar/internal/store"
 )
 
@@ -88,5 +89,28 @@ func TestWatchUntilIdleYieldsToRunningWatcher(t *testing.T) {
 	watchReturns(t, f.d, 3*time.Second)
 	if m, _ := f.st.Get(e.ID); m.Record.State != store.Queued || m.Record.HoldReason != "" {
 		t.Fatalf("second watcher touched the message: %+v", m.Record)
+	}
+}
+
+// A message behind a held one has no reason of its own yet; a sender would
+// wait out its print deadline. Block holds it as behind, keeping the order.
+func TestBlockHoldsLaterMessagesBehind(t *testing.T) {
+	f := setup(t)
+	a := agenttest.Start(t, f.rex, f.bin, "claude")
+	a.Control("working")
+	first := f.queue(a.Session, a.Block, "first")
+	second := f.queue(a.Session, a.Block, "second")
+	out, err := f.d.Block(t.Context(), a.Block)
+	if err != nil || out == nil {
+		t.Fatalf("block: %v %v", out, err)
+	}
+	want(t, *out, store.Queued, "busy")
+	if m, _ := f.st.Get(second.ID); m.Record.State != store.Queued || m.Record.HoldReason != "behind" {
+		t.Fatalf("second: %s %q", m.Record.State, m.Record.HoldReason)
+	}
+	a.Control("done")
+	out, _ = f.d.Block(t.Context(), a.Block)
+	if out.ID != first.ID || out.State != store.Submitted {
+		t.Fatalf("delivered %+v, want %s first", out, first.ID)
 	}
 }

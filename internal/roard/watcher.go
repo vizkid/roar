@@ -22,7 +22,9 @@ var triggers = map[string]bool{
 // covered are hold reasons that a trigger reports the end of. Every other
 // hold, such as a draft in the composer, may clear with no event, so the
 // gap re-check covers it.
-var covered = map[string]bool{"busy": true}
+// A message held behind another waits on that one, whose own reason decides
+// whether the gap re-check runs.
+var covered = map[string]bool{"busy": true, "behind": true}
 
 // watcher delivers held messages as events arrive: notify marks from the
 // store, and Rex events from roard's own connection. It sets a timer only
