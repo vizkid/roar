@@ -97,3 +97,58 @@ func TestRexEventRouting(t *testing.T) {
 		t.Fatalf("attempts after three events: %d", got)
 	}
 }
+
+// Live, 2026-11-02: held messages sat through a pane's rests and its close
+// until a restart. The sweep re-reads the store, so even a wrong pending
+// flag cannot strand a message.
+func TestSweepRecoversMissedWake(t *testing.T) {
+	h := newHarness(t, "watcher.sweep=50ms,watcher.coalesce=1ms")
+	p := newPool(1)
+	defer p.stop()
+	w := newWatcher(context.Background(), h.deps, newSubs(nil), p)
+	defer w.stop()
+	w.haveLock(true)
+	e := h.envelope("held")
+	h.st.Put(e, time.Now())
+	hold(t, h.st, e.ID, "busy")
+	w.refresh(e.To.Block)
+	w.mu.Lock()
+	delete(w.pending, e.To.Block) // the state the live pane was in
+	w.mu.Unlock()
+	deadline := time.Now().Add(5 * time.Second)
+	for h.del.count(e.To.Block) == 0 {
+		if time.Now().After(deadline) {
+			t.Fatal("the sweep never attempted the pane")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+// The sweep is a timer only while something is queued.
+func TestSweepOnlyWhileQueued(t *testing.T) {
+	h := newHarness(t, "watcher.sweep=20ms")
+	p := newPool(1)
+	defer p.stop()
+	w := newWatcher(context.Background(), h.deps, newSubs(nil), p)
+	defer w.stop()
+	if w.sweepArmed() {
+		t.Fatal("armed with nothing queued")
+	}
+	e := h.envelope("held")
+	h.st.Put(e, time.Now())
+	hold(t, h.st, e.ID, "busy")
+	w.refresh(e.To.Block)
+	if !w.sweepArmed() {
+		t.Fatal("not armed with a message queued")
+	}
+	c, _ := h.st.Claim(e.ID)
+	c.Move(store.Read, time.Now(), nil)
+	c.Release()
+	deadline := time.Now().Add(5 * time.Second)
+	for w.sweepArmed() {
+		if time.Now().After(deadline) {
+			t.Fatal("still armed with nothing queued")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}

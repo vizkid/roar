@@ -20,6 +20,11 @@ func resolveTarget(ctx context.Context, env Env, raw string) (envelope.Address, 
 	c := env.Rex
 	c.Server = host
 	to, err := rex.Resolve(ctx, c, target)
+	if host == "" && errors.Is(err, rex.ErrNoTarget) {
+		if uerr := unknownHost(raw); uerr != nil {
+			return to, c, uerr
+		}
+	}
 	if target != "peer" || host != "" || !errors.Is(err, rex.ErrNoTarget) {
 		return to, c, err
 	}

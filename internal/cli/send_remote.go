@@ -47,7 +47,24 @@ func splitHost(ctx context.Context, c rex.Client, target string) (host, rest str
 	if strings.Contains(label, ".") {
 		return label, rest, nil
 	}
+	if name := tailnetHost(ctx, c, label); name != "" {
+		return name, rest, nil
+	}
 	return "", target, nil
+}
+
+// unknownHost replaces no_such_target for a "<host>:" prefix that named
+// nothing. Read as a pane label it would look like an unreachable host.
+func unknownHost(raw string) error {
+	label, _, ok := strings.Cut(raw, ":")
+	if !ok || label == "block" || label == "session" {
+		return nil
+	}
+	return hostError(label)
+}
+
+func hostError(label string) error {
+	return fmt.Errorf("unknown_host: Rex here has no host %q and no tailnet name for it; add one with: rex hosts add %s <endpoint>", label, label)
 }
 
 // localName is this machine's host name without its domain: "Stiletto" for

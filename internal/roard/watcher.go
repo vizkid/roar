@@ -40,6 +40,7 @@ type watcher struct {
 	gaps    map[string]bool // panes whose holds no event reports
 	timers  map[string]*time.Timer
 	gap     *time.Timer
+	sweep   *time.Timer
 	locked  bool
 	lock    *store.WatcherLock
 	retry   *time.Timer
@@ -106,7 +107,7 @@ func (w *watcher) stop() {
 	for _, t := range w.timers {
 		t.Stop()
 	}
-	for _, t := range []*time.Timer{w.gap, w.retry} {
+	for _, t := range []*time.Timer{w.gap, w.sweep, w.retry} {
 		if t != nil {
 			t.Stop()
 		}

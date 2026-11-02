@@ -77,7 +77,10 @@ func resolveServer(ctx context.Context, env Env, server string) (endpoint, label
 	if strings.Contains(server, ".") { // a DNS name, as roar install takes it
 		return "https://" + server, server, nil
 	}
-	return "", "", fmt.Errorf("no_route: Rex knows no host %q", server)
+	if name := tailnetHost(ctx, env.Rex, server); name != "" {
+		return "https://" + name, name, nil
+	}
+	return "", "", hostError(server)
 }
 
 // peerFor is the roard client for a host label or endpoint, with that

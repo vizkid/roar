@@ -227,6 +227,7 @@ func TestKeyTable(t *testing.T) {
 		"sender.transfer.min_rate": {"256KiB/s", "16KiB/s"},
 		"roard.callback.give_up":   {"2m", "10m"},
 		"watcher.gap_recheck":      {"30s", "30s"},
+		"watcher.sweep":            {"60s", "60s"},
 		"install.ready_timeout":    {"20s", "2m"},
 		"claude.poll":              {"250ms", "250ms"},
 		"roard.relay.retire":       {"true", "true"},

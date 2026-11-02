@@ -94,6 +94,7 @@ var keys = []Key{
 
 	{Name: "watcher.coalesce", Kind: KindDuration, Default: "50ms", Check: NonNegative, Doc: "Events for one pane within this window cause one attempt"},
 	{Name: "watcher.gap_recheck", Kind: KindDuration, Default: "30s", Doc: "Re-check only for pending work that no event covers"},
+	{Name: "watcher.sweep", Kind: KindDuration, Default: "60s", Doc: "Backstop while anything is queued, for a wake-up that never came"},
 	{Name: "watcher.legacy_lock_retry", Kind: KindDuration, Default: "5s", Doc: "Only while an old watcher holds watch.lock"},
 
 	{Name: "install.deadline", Kind: KindDuration, Default: "2m", Slow: "10m", Host: true, Doc: "A whole roar install"},

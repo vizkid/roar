@@ -184,6 +184,7 @@ Every timer that remains, and the ones this design removes. Inherited timers in 
 | --- | --- | --- | --- |
 | Sender polls `roar.status` every 500 ms | Removed | | `roar.subscribe` and `roar.result` |
 | Watcher sweeps every 30 s | Only while pending work is in a gap | `watcher.gap_recheck` | Filesystem and Rex events cover everything else |
+| None | Every 60 s while anything is queued | `watcher.sweep` | Backstop for a wake-up that never came. It reads the store, not the pending flags, and stops when nothing is queued |
 | Daemon scans the store every 30 s | Removed | | Filesystem events and reconciliation |
 | Binary check every 30 s | Removed | | Install restarts the service; a manual build is seen through a directory watch |
 | `roar-relay` scan every 10 min | Removed | | Startup inventory and session and block events |
@@ -310,6 +311,7 @@ Who reads each key: **S** is the sender, **D** is roard, **C** is any command.
 | `roard.service.restart_delay` | 2s | 2s | D | `RestartSec` and launchd's throttle. Applied by `roar setup`. |
 | `watcher.coalesce` | 50ms | 50ms | D | Events for one pane within this window cause one attempt |
 | `watcher.gap_recheck` | 30s | 30s | D | Re-check only for pending work that no event covers |
+| `watcher.sweep` | 60s | 60s | D | Backstop while anything is queued, for a wake-up that never came |
 | `watcher.legacy_lock_retry` | 5s | 5s | D | Only while an old watcher holds `watch.lock` |
 | `install.deadline` | 2m | 10m | C | A whole `roar install` |
 | `install.ready_check` | 100ms | 500ms | C | Bootstrap only: how often install reads the screen for `ROAR-READY` |
@@ -452,9 +454,12 @@ The live run on Stiletto, Baroni and Colonelk reports, for a small send and for 
 | roard runs as a service on all three hosts | Installed 2026-11-02. On each host roard closed the idle `roar-relay` shell and destroyed the session within a second of starting. `roar panes Baroni` from Stiletto answered through roard in 0.56 s. On Colonelk roard ran beside 59 local sends; every one reached `submitted`. |
 | A message behind a held one answers at once | Live, 2026-11-02: a 3 MiB send from Baroni queued behind a small one held as `busy`. With no reason of its own, the sender waited its whole 15 s print deadline and printed `queued`. The delivery pass now holds every later message in that pane as `behind`, still in order (`TestBlockHoldsLaterMessagesBehind`). `behind` needs no gap re-check: the message ahead of it decides that. The attachment arrived intact, SHA-256 `4952b5fa…`. |
 | A service needs no command deadline | The first install exposed it: every command ran under a 2-minute deadline, so launchd restarted roard every 120 s, and each restart left a `lost` client that made senders fail with `roard_ambiguous`. `TestServiceCommandsHaveNoDeadline`, `TestResolveSkipsLostClient` and `TestCloseLeavesAtOnce` pin the three fixes. |
+| A host name need not be stored | Stored host lists differ per machine: Colonelk had none. An unstored `<Label>:` tries this host's own naming pattern from `server.status` (`colonelk-rex.<tailnet>` gives `baroni-rex.<tailnet>`) and checks DNS. If that fails, the sender gets `unknown_host` with the `rex hosts add` fix, not `no_such_target`. `TestTailnetCandidate`, `TestUnknownHostPrefixSaysSo`. |
 | The API reference | Each Rex server serves it at `GET /llms.txt` (`curl --unix-socket <socket> http://localhost/llms.txt`). The public docs do not cover client actions. |
 
 ## Open questions
+
+**Stranded pane, cause unknown.** On 2026-11-02 four messages stayed queued for a real Claude pane through its rests and its close, until a roard restart. The test agent does not reproduce it (`TestRoardDeliversEachHeldSendInTurn`, `TestRoardExpiresHeldSendWhenPaneCloses`). `watcher.sweep` now recovers such a pane within 60 s. The log line `sweep: ... was not pending` or a `block_closed` line will show the cause if it happens again.
 
 | Question | Recommendation |
 | --- | --- |

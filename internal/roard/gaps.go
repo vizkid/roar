@@ -29,6 +29,9 @@ func (w *watcher) refresh(block string) {
 	setFlag(w.pending, block, pending)
 	setFlag(w.gaps, block, gap)
 	w.armGap()
+	if pending || gap {
+		w.armSweep()
+	}
 }
 
 func setFlag(m map[string]bool, k string, v bool) {
@@ -76,4 +79,43 @@ func (w *watcher) gapFire() {
 	w.mu.Lock()
 	w.armGap()
 	w.mu.Unlock()
+}
+
+// armSweep runs the backstop. Called with mu.
+func (w *watcher) armSweep() {
+	if w.sweep == nil && !w.stopped {
+		w.sweep = time.AfterFunc(w.d.Settings().Duration("watcher.sweep"), w.sweepFire)
+	}
+}
+
+func (w *watcher) sweepArmed() bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.sweep != nil
+}
+
+// sweepFire covers every queued pane, read from the store and not from
+// pending, so a wrong flag cannot strand a message. Events do the real work;
+// this is for a wake-up that never came, and it stops when nothing is queued.
+func (w *watcher) sweepFire() {
+	blocks, err := w.d.Store.QueuedBlocks()
+	if err != nil {
+		w.d.logf("sweep: %v", err)
+	}
+	w.mu.Lock()
+	w.sweep = nil
+	for b := range blocks {
+		if !w.pending[b] && !w.gaps[b] { // an adapter's pane is in gaps, by design
+			w.d.logf("sweep: %s has queued messages but was not pending", b)
+		}
+	}
+	w.mu.Unlock()
+	for b := range blocks {
+		w.cover(b)
+	}
+	if len(blocks) > 0 || err != nil {
+		w.mu.Lock()
+		w.armSweep()
+		w.mu.Unlock()
+	}
 }
