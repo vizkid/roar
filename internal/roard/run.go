@@ -44,8 +44,9 @@ func Run(ctx context.Context, d Deps) error {
 	rl := &relay{d: d}
 	var sess *rexctl.Session
 	onEvent := func(e rexctl.Event) {
+		e = unwrap(e)
 		w.rexEvent(e)
-		if (e.Type == "block_closed" || e.Type == "session_destroyed") && rl.known() {
+		if relayTrigger(e) && rl.known() {
 			p.submit(func() {
 				if c := sess.Current(); c != nil {
 					rl.check(ctx, c)

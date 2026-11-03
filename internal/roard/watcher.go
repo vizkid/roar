@@ -224,22 +224,9 @@ func (w *watcher) schedule(block string) {
 	})
 }
 
-// rexEvent routes one event from roard's connection. A session's events,
-// block_event and block_closed among them, arrive inside a session_event;
-// server events such as client_left arrive bare.
+// rexEvent routes one event from roard's connection, wrapped or not.
 func (w *watcher) rexEvent(e rexctl.Event) {
-	if e.Type == "session_event" {
-		var s struct {
-			Event struct {
-				Type    string          `json:"type"`
-				Payload json.RawMessage `json:"payload"`
-			} `json:"event"`
-		}
-		if json.Unmarshal(e.Payload, &s) != nil {
-			return
-		}
-		e = rexctl.Event{Seq: e.Seq, Type: s.Event.Type, Payload: s.Event.Payload}
-	}
+	e = unwrap(e)
 	var p struct {
 		BlockID  string `json:"block_id"`
 		ClientID string `json:"client_id"`

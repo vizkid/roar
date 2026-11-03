@@ -6,12 +6,9 @@ import (
 	"github.com/vizkid/rexkit/backoff"
 )
 
-// Backoff, Retry and NewRetry live in rexkit, which roar's Rex client shares
-// with Burns.
-type (
-	Backoff = backoff.Backoff
-	Retry   = backoff.Retry
-)
+// Backoff and NewRetry live in rexkit, which roar's Rex client shares with
+// Burns.
+type Backoff = backoff.Backoff
 
 // NewRetry starts a retry loop with b.
 var NewRetry = backoff.NewRetry

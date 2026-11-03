@@ -116,6 +116,24 @@ func TestEventDuringAttemptRunsAgain(t *testing.T) {
 	}
 }
 
+// The relay check reads the same events as the watcher. It checked the
+// wrapped event for block_closed and so never ran on a pane close.
+func TestRelayChecksOnWrappedClose(t *testing.T) {
+	for _, c := range []struct {
+		e    rexctl.Event
+		want bool
+	}{
+		{sessionEvent("block_closed", `{"block_id":"block:r"}`), true},
+		{rexctl.Event{Type: "session_destroyed", Payload: []byte(`{"session_id":"session:s"}`)}, true},
+		{blockEvent("block:r", "program_status_changed"), false},
+		{rexctl.Event{Type: "client_left", Payload: []byte(`{"client_id":"client:c"}`)}, false},
+	} {
+		if got := relayTrigger(unwrap(c.e)); got != c.want {
+			t.Errorf("%s %s: %v, want %v", c.e.Type, c.e.Payload, got, c.want)
+		}
+	}
+}
+
 // A pane that closes with a held message gets an attempt, which expires it.
 func TestBlockClosedSchedulesAttempt(t *testing.T) {
 	h := newHarness(t, "watcher.coalesce=10ms")
