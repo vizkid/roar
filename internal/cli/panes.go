@@ -122,20 +122,19 @@ func paneName(b rex.Block, windows []rex.Window) string {
 }
 
 func describePane(ctx context.Context, rc rex.Client, st *store.Store, session string, r *paneRow) {
-	if msgs, err := st.Inbox(r.Block); err == nil {
+	if msgs, err := st.Unfinished(r.Block); err == nil {
 		for _, m := range msgs {
 			if m.Record.State == store.Queued {
 				r.Queued++
 			}
 		}
 	}
-	res := ready.Probe(ctx, rc, session, r.Block, 0)
+	res, p := ready.ProbeProcess(ctx, rc, session, r.Block, 0)
 	r.Ready = res.State + ":" + res.Reason
 	if res.Verdict == ready.Empty {
 		r.Ready = res.State
 	}
-	p, err := rc.Process(ctx, session, r.Block)
-	if err != nil || p.Foreground == nil || p.LastExit != nil {
+	if p.Foreground == nil || p.LastExit != nil {
 		r.Path = "none"
 		return
 	}

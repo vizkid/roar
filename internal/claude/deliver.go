@@ -51,7 +51,7 @@ func (d *deliverer) run(ctx context.Context) {
 // or accepted by another writer is replayed, because a changed writer means
 // Claude's queue for it is gone.
 func (d *deliverer) recover() {
-	msgs, _ := d.cfg.Store.Inbox(d.cfg.Block)
+	msgs, _ := d.cfg.Store.Unfinished(d.cfg.Block)
 	for _, m := range msgs {
 		s := m.Record.State
 		if (s == store.Written || s == store.Accepted) && m.Record.Writer != d.cfg.Writer {
@@ -61,7 +61,7 @@ func (d *deliverer) recover() {
 }
 
 func (d *deliverer) deliver(ctx context.Context) {
-	msgs, err := d.cfg.Store.Inbox(d.cfg.Block)
+	msgs, err := d.cfg.Store.Unfinished(d.cfg.Block)
 	if err != nil {
 		return
 	}

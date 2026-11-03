@@ -12,21 +12,53 @@ import (
 // describe a pane that has since changed.
 const Freshness = 2 * time.Second
 
-// Probe takes every reading for one pane and decides. The process is read
-// first, so a dead pane refuses without further calls.
+// Probe takes the readings for one pane and decides. Each reading is taken
+// only when the gates before it passed: a dead pane costs one Rex call, a
+// busy or modal agent two, and only an agent at rest has its screen read.
 func Probe(ctx context.Context, c rex.Client, session, block string, wantPID int) Result {
+	r, _ := ProbeProcess(ctx, c, session, block, wantPID)
+	return r
+}
+
+// ProbeProcess is Probe that also returns its process reading, so a caller
+// that needs the process does not read it again. The process is zero when
+// that read failed.
+func ProbeProcess(ctx context.Context, c rex.Client, session, block string, wantPID int) (Result, rex.Process) {
 	start := time.Now()
-	s, err := snapshot(ctx, c, session, block)
-	if errors.Is(err, rex.ErrNotFound) {
-		return result(Refuse, "dead_pane")
+	var s Snapshot
+	var err error
+	fresh := func(r Result) (Result, rex.Process) {
+		if time.Since(start) > Freshness {
+			r = result(Wait, "stale_probe")
+		}
+		return r, s.Process
 	}
-	if err != nil {
-		return result(Wait, "probe_failed")
+	if s.Process, err = c.Process(ctx, session, block); errors.Is(err, rex.ErrNotFound) {
+		return result(Refuse, "dead_pane"), s.Process
+	} else if err != nil {
+		return result(Wait, "probe_failed"), s.Process
 	}
-	if time.Since(start) > Freshness {
-		return result(Wait, "stale_probe")
+	if s.Process.Foreground == nil || s.Process.LastExit != nil {
+		return fresh(decideProcessAndStatus(s, wantPID))
 	}
-	return Decide(s, wantPID)
+	if s.Status, err = c.ProgramStatus(ctx, session, block); err != nil {
+		return fresh(result(Wait, "probe_failed"))
+	}
+	if gate := decideProcessAndStatus(s, wantPID); gate.Verdict != Empty {
+		return fresh(gate)
+	}
+	if s.CursorVisible, err = c.CursorVisible(ctx, session, block); err != nil {
+		return fresh(result(Wait, "probe_failed"))
+	}
+	if s.CursorVisible { // a hidden cursor decides without the screen
+		if s.Rows, err = c.Rows(ctx, session, block); err == nil {
+			s.VT, err = c.ScreenVT(ctx, session, block)
+		}
+		if err != nil {
+			return fresh(result(Wait, "probe_failed"))
+		}
+	}
+	return fresh(Decide(s, wantPID))
 }
 
 // Status re-runs only the process and status gates. The fallback uses it
@@ -87,26 +119,4 @@ func readScreen(ctx context.Context, c rex.Client, session, block string) (scree
 	}
 	sc, err := parseScreen(vt, rows)
 	return sc, err == nil
-}
-
-func snapshot(ctx context.Context, c rex.Client, session, block string) (Snapshot, error) {
-	var s Snapshot
-	var err error
-	if s.Process, err = c.Process(ctx, session, block); err != nil {
-		return s, err
-	}
-	if s.Process.Foreground == nil || s.Process.LastExit != nil {
-		return s, nil
-	}
-	if s.Status, err = c.ProgramStatus(ctx, session, block); err != nil {
-		return s, err
-	}
-	if s.CursorVisible, err = c.CursorVisible(ctx, session, block); err != nil {
-		return s, err
-	}
-	if s.Rows, err = c.Rows(ctx, session, block); err != nil {
-		return s, err
-	}
-	s.VT, err = c.ScreenVT(ctx, session, block)
-	return s, err
 }

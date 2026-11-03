@@ -8,7 +8,7 @@ import (
 
 // refresh recomputes one pane's pending and gap state, and the gap timer.
 func (w *watcher) refresh(block string) {
-	msgs, _ := w.d.Store.Inbox(block)
+	msgs, _ := w.d.Store.Unfinished(block)
 	adapter := w.d.Store.AdapterLive(block)
 	pending, gap := false, false
 	for _, m := range msgs {

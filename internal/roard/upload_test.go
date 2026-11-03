@@ -195,3 +195,29 @@ func TestUploadPartReportsMetadataFailure(t *testing.T) {
 		t.Fatal("part acknowledged although its metadata was not saved")
 	}
 }
+
+// Review, 2026-11-03: every part reloaded every open upload's metadata
+// from disk to rearm expiry. Metadata is read from disk once, at start.
+func TestPartsReadNoMetadataFromDisk(t *testing.T) {
+	h := newHarness(t, "")
+	h.start()
+	s := h.sender(make(chan Result, 8))
+	var ups []beginReply
+	var data [][]byte
+	for i := range 3 {
+		e, d := h.withFile("index", 4096)
+		e.ID = e.ID[:len(e.ID)-1] + string(rune('A'+i))
+		ups, data = append(ups, h.begin(s, e)), append(data, d)
+	}
+	before := metaDiskReads.Load()
+	for i, b := range ups {
+		for off := 0; off < len(data[i]); off += 1024 {
+			if _, err := h.part(s, b.Upload, int64(off), data[i][off:off+1024]); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if n := metaDiskReads.Load() - before; n != 0 {
+		t.Fatalf("12 parts read metadata from disk %d times", n)
+	}
+}

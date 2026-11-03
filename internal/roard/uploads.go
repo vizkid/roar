@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/vizkid/rexkit/rexctl"
@@ -17,15 +18,20 @@ import (
 
 // uploads keeps large messages arriving in parts, under <store>/uploads/<id>.
 // An upload is keyed by its message ID, so begin is idempotent, and it lives
-// on disk, so it survives a roard restart. One timer covers the earliest
-// expiry.
+// on disk, so it survives a roard restart. Metadata is read from disk once,
+// at start, into meta; every change writes disk and meta together. One
+// timer covers the earliest expiry.
 type uploads struct {
 	d       Deps
 	dir     string
 	mu      sync.Mutex
+	meta    map[string]uploadMeta // open uploads by message ID
 	timer   *time.Timer
 	stopped bool
 }
+
+// metaDiskReads counts metadata files read from disk, for tests.
+var metaDiskReads atomic.Int64
 
 type uploadMeta struct {
 	Envelope string          `json:"envelope"`
@@ -39,9 +45,17 @@ const uploadPrefix = "up-"
 var errBadUpload = errors.New("bad upload id")
 
 func newUploads(d Deps) (*uploads, error) {
-	u := &uploads{d: d, dir: filepath.Join(d.Store.Root(), "uploads")}
+	u := &uploads{d: d, dir: filepath.Join(d.Store.Root(), "uploads"), meta: map[string]uploadMeta{}}
 	if err := os.MkdirAll(u.dir, 0o700); err != nil {
 		return nil, err
+	}
+	entries, _ := os.ReadDir(u.dir)
+	for _, e := range entries {
+		if m, err := u.loadDisk(e.Name()); err == nil {
+			u.meta[e.Name()] = m
+		} else {
+			os.RemoveAll(u.path(e.Name())) // a half-made upload; its sender's begin starts over
+		}
 	}
 	u.mu.Lock()
 	u.arm()
@@ -62,7 +76,17 @@ func (u *uploads) path(id string, parts ...string) string {
 	return filepath.Join(append([]string{u.dir, id}, parts...)...)
 }
 
+// load is an open upload's metadata. Called with mu.
 func (u *uploads) load(id string) (uploadMeta, error) {
+	m, ok := u.meta[id]
+	if !ok {
+		return m, os.ErrNotExist
+	}
+	return m, nil
+}
+
+func (u *uploads) loadDisk(id string) (uploadMeta, error) {
+	metaDiskReads.Add(1)
 	var m uploadMeta
 	b, err := os.ReadFile(u.path(id, "meta.json"))
 	if err == nil {
@@ -77,12 +101,22 @@ func (u *uploads) save(id string, m uploadMeta) error {
 	if err := os.WriteFile(tmp, b, 0o600); err != nil {
 		return err
 	}
-	return os.Rename(tmp, u.path(id, "meta.json"))
+	if err := os.Rename(tmp, u.path(id, "meta.json")); err != nil {
+		return err
+	}
+	u.meta[id] = m
+	return nil
+}
+
+// drop deletes an upload from disk and the index. Called with mu.
+func (u *uploads) drop(id string) {
+	os.RemoveAll(u.path(id))
+	delete(u.meta, id)
 }
 
 func (u *uploads) remove(id string) {
 	u.mu.Lock()
-	os.RemoveAll(u.path(id))
+	u.drop(id)
 	u.arm()
 	u.mu.Unlock()
 }
@@ -111,13 +145,11 @@ func (u *uploads) arm() {
 	if u.stopped {
 		return
 	}
-	entries, _ := os.ReadDir(u.dir)
 	now := time.Now()
 	var next time.Time
-	for _, e := range entries {
-		m, err := u.load(e.Name())
-		if err != nil || u.expired(m, now) {
-			os.RemoveAll(u.path(e.Name()))
+	for id, m := range u.meta {
+		if u.expired(m, now) {
+			u.drop(id)
 			continue
 		}
 		if dl := u.deadline(m); next.IsZero() || dl.Before(next) {
@@ -154,16 +186,13 @@ func (u *uploads) begin(raw, digest string) (any, *rexctl.Error) {
 		}
 		return u.reply(e.ID, m), nil
 	}
-	entries, _ := os.ReadDir(u.dir)
 	s := u.d.Settings()
-	if len(entries) >= s.Int("roard.upload.max_count") {
-		return nil, refused("upload_limit: %d uploads open", len(entries))
+	if len(u.meta) >= s.Int("roard.upload.max_count") {
+		return nil, refused("upload_limit: %d uploads open", len(u.meta))
 	}
 	reserved := size(e.Files)
-	for _, ent := range entries {
-		if m, err := u.load(ent.Name()); err == nil {
-			reserved += size(m.Files)
-		}
+	for _, m := range u.meta {
+		reserved += size(m.Files)
 	}
 	if reserved > s.Size("roard.upload.max_bytes") {
 		return nil, refused("upload_limit: %d bytes reserved", reserved)
@@ -176,11 +205,13 @@ func (u *uploads) begin(raw, digest string) (any, *rexctl.Error) {
 	for i := range e.Files {
 		f, err := os.OpenFile(u.path(e.ID, partName(i)), os.O_CREATE|os.O_WRONLY, 0o600)
 		if err != nil {
+			u.drop(e.ID)
 			return nil, &rexctl.Error{Code: "internal", Message: err.Error()}
 		}
 		f.Close()
 	}
 	if err := u.save(e.ID, m); err != nil {
+		u.drop(e.ID) // not indexed, so the sender's next begin must find no directory
 		return nil, &rexctl.Error{Code: "internal", Message: err.Error()}
 	}
 	u.arm()
@@ -209,11 +240,13 @@ func (u *uploads) reply(id string, m uploadMeta) map[string]any {
 	return map[string]any{"upload": uploadPrefix + id, "committed": committed}
 }
 
-// contents reads a whole upload for commit.
+// contents reads a whole upload for commit. The files are read outside mu,
+// so a large commit does not stall part handlers; parts for a committed
+// upload are only repeats.
 func (u *uploads) contents(id string) (string, map[string][]byte, error) {
 	u.mu.Lock()
-	defer u.mu.Unlock()
 	m, err := u.load(id)
+	u.mu.Unlock()
 	if err != nil {
 		return "", nil, err
 	}

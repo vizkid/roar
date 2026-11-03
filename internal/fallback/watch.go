@@ -20,7 +20,7 @@ const CatchUp = 2 * time.Second
 // delivered message starts a turn, so the next would only be held as busy.
 // While the oldest stays held, the rest are held as behind.
 func (d *Deliverer) Block(ctx context.Context, block string) (*Outcome, error) {
-	msgs, err := d.Store.Inbox(block)
+	msgs, err := d.Store.Unfinished(block)
 	if err != nil {
 		return nil, err
 	}

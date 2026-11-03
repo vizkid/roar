@@ -15,7 +15,7 @@ const DefaultRetention = 7 * 24 * time.Hour
 // Prune removes finished messages older than s.Retention, and their sent
 // records. Unread messages are never pruned.
 func (s *Store) Prune(now time.Time) error {
-	all, err := s.All()
+	all, err := s.allWhere(func(r Record) bool { return r.State.Final() && now.Sub(r.UpdatedAt) >= s.Retention })
 	if err != nil {
 		return err
 	}
@@ -53,7 +53,7 @@ func (s *Store) Prune(now time.Time) error {
 // automatically. Claude's adapter keeps messages written while it waits for
 // receipt, so its writes stay.
 func (s *Store) SettleOrphans(now time.Time) (int, error) {
-	all, err := s.All()
+	all, err := s.allWhere(func(r Record) bool { return orphanReason(r) != "" })
 	if err != nil {
 		return 0, err
 	}

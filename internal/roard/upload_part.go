@@ -36,7 +36,7 @@ func (u *uploads) part(up, name string, off int64, data string) (any, *rexctl.Er
 	}
 	now := time.Now()
 	if u.expired(m, now) {
-		os.RemoveAll(u.path(id))
+		u.drop(id)
 		u.arm()
 		return nil, refused("upload_expired")
 	}

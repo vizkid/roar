@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"time"
 
 	"github.com/vizkid/roar/internal/envelope"
@@ -175,9 +176,17 @@ func fileBytes(e envelope.Envelope) int64 {
 	return n
 }
 
+// envelopeReads counts envelopes read from disk, for tests.
+var envelopeReads atomic.Int64
+
+func readEnvelope(dir string, e *envelope.Envelope) error {
+	envelopeReads.Add(1)
+	return readJSON(filepath.Join(dir, "envelope.json"), e)
+}
+
 func load(dir string) (Message, error) {
 	m := Message{Dir: dir}
-	if err := readJSON(filepath.Join(dir, "envelope.json"), &m.Envelope); err != nil {
+	if err := readEnvelope(dir, &m.Envelope); err != nil {
 		if os.IsNotExist(err) {
 			return m, ErrNotFound
 		}
@@ -227,7 +236,7 @@ func writeFiles(dir string, list []envelope.File, files map[string][]byte) error
 // checkLimits is advisory across processes: two simultaneous sends can both
 // pass. The limits exist to stop runaway senders, not to meter exactly.
 func (s *Store) checkLimits(e envelope.Envelope) error {
-	all, err := s.All()
+	all, err := s.allWhere(func(r Record) bool { return !r.State.Final() })
 	if err != nil {
 		return err
 	}
