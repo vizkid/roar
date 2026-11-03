@@ -117,11 +117,7 @@ func (p *Peer) Send(ctx context.Context, e envelope.Envelope, files map[string][
 func (p *Peer) sendOnce(ctx context.Context, st *sendState) (roard.Row, error) {
 	bctx, cancel := budget(ctx, st)
 	defer cancel()
-	// The WebSocket handshake and Rex's hello honour a deadline but not a
-	// cancel, so the dial also gets the budget's current end as a deadline.
-	dctx, dcancel := context.WithDeadline(bctx, st.until())
-	l, err := p.dial(dctx)
-	dcancel()
+	l, err := p.dial(bctx)
 	if err != nil {
 		return roard.Row{}, err
 	}
