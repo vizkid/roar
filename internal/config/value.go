@@ -135,6 +135,10 @@ func check(k Key, v any) error {
 		if f <= 0 || f > 1 {
 			return errors.New("must be above 0 and at most 1")
 		}
+	case Base64Part:
+		if f < 4 {
+			return errors.New("must be at least 4B, one base64 group")
+		}
 	}
 	return nil
 }

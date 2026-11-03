@@ -30,17 +30,29 @@ func (f File) Matches(data []byte) bool {
 }
 
 // UniqueNames gives each path its base name, suffixing repeats: a.txt,
-// a-2.txt, a-3.txt.
+// a-2.txt, a-3.txt. A suffixed name never takes a name another path has as
+// its own, so every name in the result is distinct.
 func UniqueNames(paths []string) []string {
-	seen := map[string]int{}
+	own := map[string]bool{}
+	for _, p := range paths {
+		own[filepath.Base(p)] = true
+	}
+	used := map[string]bool{}
 	out := make([]string, len(paths))
 	for i, p := range paths {
 		name := filepath.Base(p)
-		seen[name]++
-		if n := seen[name]; n > 1 {
+		if used[name] {
 			ext := filepath.Ext(name)
-			name = fmt.Sprintf("%s-%d%s", strings.TrimSuffix(name, ext), n, ext)
+			stem := strings.TrimSuffix(name, ext)
+			for n := 2; ; n++ {
+				c := fmt.Sprintf("%s-%d%s", stem, n, ext)
+				if !used[c] && !own[c] {
+					name = c
+					break
+				}
+			}
 		}
+		used[name] = true
 		out[i] = name
 	}
 	return out

@@ -18,12 +18,21 @@ type file struct {
 }
 
 func readFile(path string) (file, error) {
+	b, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return parseFile(path, "")
+	}
+	if err != nil {
+		return file{}, err
+	}
+	return parseFile(path, string(b))
+}
+
+// parseFile reads the config text; path names it in errors.
+func parseFile(path, text string) (file, error) {
 	f := file{keys: map[string]any{}, hosts: map[string]map[string]any{}, profiles: map[string]map[string]any{}}
 	var tree map[string]any
-	if _, err := toml.DecodeFile(path, &tree); err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return f, nil
-		}
+	if _, err := toml.Decode(text, &tree); err != nil {
 		return f, fmt.Errorf("%s: %w", path, err)
 	}
 	for name, v := range tree {
@@ -45,7 +54,9 @@ func readFile(path string) (file, error) {
 					return f, fmt.Errorf("%s: %s.%s: want a table", path, name, label)
 				}
 				flat := map[string]any{}
-				flatten("", m, flat)
+				if err := flatten("", m, flat); err != nil {
+					return f, fmt.Errorf("%s: %s.%s: %w", path, name, label, err)
+				}
 				if name == "hosts" {
 					f.hosts[label] = flat
 				} else {
@@ -53,26 +64,35 @@ func readFile(path string) (file, error) {
 				}
 			}
 		default:
-			flatten("", map[string]any{name: v}, f.keys)
+			if err := flatten("", map[string]any{name: v}, f.keys); err != nil {
+				return f, fmt.Errorf("%s: %w", path, err)
+			}
 		}
 	}
 	return f, nil
 }
 
 // flatten turns nested tables into dotted keys, so [sender.upload]
-// part_size and "sender.upload.part_size" mean the same.
-func flatten(prefix string, m map[string]any, out map[string]any) {
+// part_size and "sender.upload.part_size" mean the same. A key spelled both
+// ways is an error: neither spelling has a rule to win.
+func flatten(prefix string, m map[string]any, out map[string]any) error {
 	for k, v := range m {
 		name := k
 		if prefix != "" {
 			name = prefix + "." + k
 		}
 		if sub, ok := v.(map[string]any); ok {
-			flatten(name, sub, out)
-		} else {
-			out[name] = v
+			if err := flatten(name, sub, out); err != nil {
+				return err
+			}
+			continue
 		}
+		if _, dup := out[name]; dup {
+			return fmt.Errorf("%s is set twice, in two spellings", name)
+		}
+		out[name] = v
 	}
+	return nil
 }
 
 func builtinProfile(name string) (map[string]any, bool) {

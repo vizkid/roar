@@ -177,3 +177,21 @@ func TestUploadLimitAndExpiry(t *testing.T) {
 	}
 	h.begin(s, second) // the expired upload freed its slot
 }
+
+// Review, 2026-11-03: a part whose bytes landed but whose metadata write
+// failed was acknowledged, so the upload could expire by its old time.
+func TestUploadPartReportsMetadataFailure(t *testing.T) {
+	h := newHarness(t, "")
+	h.start()
+	s := h.sender(make(chan Result, 4))
+	e, data := h.withFile("meta", 1024)
+	b := h.begin(s, e)
+	dir := filepath.Join(h.st.Root(), "uploads", e.ID)
+	if err := os.Chmod(dir, 0o500); err != nil { // the part file stays writable; meta.json.tmp cannot be made
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(dir, 0o700) })
+	if _, err := h.part(s, b.Upload, 0, data[:512]); err == nil {
+		t.Fatal("part acknowledged although its metadata was not saved")
+	}
+}

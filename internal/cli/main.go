@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -154,9 +155,14 @@ func defaultRoot(env Env) (string, error) {
 }
 
 // parse handles flags before, between, and after positional arguments.
-// Everything after "--" is positional.
+// Everything after the first "--" is positional. flag.Parse consumes "--"
+// without saying so, so the split happens before any parsing.
 func parse(fs *flag.FlagSet, args []string) ([]string, error) {
 	fs.SetOutput(io.Discard)
+	var tail []string
+	if i := slices.Index(args, "--"); i >= 0 {
+		args, tail = args[:i], args[i+1:]
+	}
 	var pos []string
 	for {
 		if err := fs.Parse(args); err != nil {
@@ -164,10 +170,7 @@ func parse(fs *flag.FlagSet, args []string) ([]string, error) {
 		}
 		args = fs.Args()
 		if len(args) == 0 {
-			return pos, nil
-		}
-		if args[0] == "--" {
-			return append(pos, args[1:]...), nil
+			return append(pos, tail...), nil
 		}
 		pos = append(pos, args[0])
 		args = args[1:]

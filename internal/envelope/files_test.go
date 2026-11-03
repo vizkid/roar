@@ -37,6 +37,16 @@ func TestUniqueNames(t *testing.T) {
 	}
 }
 
+// Review, 2026-11-03: a suffixed name could equal another file's own name.
+// a.txt, a.txt and a-2.txt gave a-2.txt twice, and the send was refused.
+func TestUniqueNamesAvoidSuppliedNames(t *testing.T) {
+	got := UniqueNames([]string{"/x/a.txt", "/y/a.txt", "/z/a-2.txt"})
+	want := []string{"a.txt", "a-3.txt", "a-2.txt"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
 func TestRenderListsAttachedPaths(t *testing.T) {
 	e := valid()
 	e.Files = []File{FileFor("a.txt", []byte("12345"))}

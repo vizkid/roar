@@ -220,3 +220,14 @@ func TestPathFromEnvironment(t *testing.T) {
 		t.Fatal(got)
 	}
 }
+
+// Review, 2026-11-03: part_size 1B passed the positive check, but a part
+// smaller than one base64 group carries no bytes, and the upload looped.
+func TestPartSizeCarriesAByte(t *testing.T) {
+	if _, _, err := Load(Options{Set: "sender.upload.part_size=3B"}); err == nil {
+		t.Fatal("3B accepted")
+	}
+	if _, _, err := Load(Options{Set: "sender.upload.part_size=4B"}); err != nil {
+		t.Fatalf("4B refused: %v", err)
+	}
+}

@@ -22,6 +22,7 @@ const (
 	Fraction                 // 0 to 1
 	Alpha                    // above 0, at most 1
 	Any
+	Base64Part // at least 4 bytes: one base64 group, which carries 3
 )
 
 // Key is one setting. Slow is its value in the built-in slow profile, or
@@ -64,7 +65,7 @@ var keys = []Key{
 	{Name: "sender.print_deadline", Kind: KindDuration, Default: "15s", Slow: "60s", Host: true, Doc: "Print the latest state after this"},
 	{Name: "sender.transfer.base", Kind: KindDuration, Default: "2m", Slow: "10m", Host: true, Doc: "A whole send's deadline before upload time"},
 	{Name: "sender.transfer.min_rate", Kind: KindRate, Default: "256KiB/s", Slow: "16KiB/s", Host: true, Doc: "Upload time added to the deadline; each acknowledged part extends it"},
-	{Name: "sender.upload.part_size", Kind: KindSize, Default: "768KiB", Slow: "128KiB", Host: true, Doc: "Base64 bytes per part, capped by the receiver's max_part"},
+	{Name: "sender.upload.part_size", Kind: KindSize, Default: "768KiB", Slow: "128KiB", Check: Base64Part, Host: true, Doc: "Base64 bytes per part, capped by the receiver's max_part"},
 	{Name: "sender.upload.in_flight", Kind: KindInt, Default: "1", Host: true, Doc: "Parts sent before the first reply"},
 
 	{Name: "roard.rex.reconnect.initial", Kind: KindDuration, Default: "1s", Doc: "Backoff to the local Rex server: first delay"},

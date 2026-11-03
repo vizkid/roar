@@ -128,7 +128,9 @@ func (p *Peer) upload(ctx context.Context, l *link, st *sendState, begin map[str
 		st.deadline = maxTime(st.deadline, time.Now().Add(s.Duration("sender.transfer.base")))
 	}
 	// part_size is base64 bytes; capped so the request stays under the limit.
-	raw := int64(min(s.Size("sender.upload.part_size"), int64(l.maxPart))) * 3 / 4
+	// A receiver's max_part below one base64 group would give 0: no part
+	// could carry a byte, and the loop would never move.
+	raw := max(1, int64(min(s.Size("sender.upload.part_size"), int64(l.maxPart)))*3/4)
 	window := max(1, s.Int("sender.upload.in_flight"))
 	type sent struct {
 		off  int64
@@ -167,8 +169,11 @@ func (p *Peer) upload(ctx context.Context, l *link, st *sendState, begin map[str
 			p.mu.Lock()
 			p.Stats.PartBytes += max(0, r.Committed-head.off)
 			p.mu.Unlock()
-			// A moving upload never runs out of time.
-			st.deadline = maxTime(st.deadline, time.Now().Add(s.Duration("sender.transfer.base")))
+			// A moving upload never runs out of time; a part that adds nothing
+			// does not move it.
+			if r.Committed > head.off {
+				st.deadline = maxTime(st.deadline, time.Now().Add(s.Duration("sender.transfer.base")))
+			}
 			n++
 			if p.afterPart != nil {
 				p.afterPart(l.c, n)

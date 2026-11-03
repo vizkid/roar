@@ -87,7 +87,11 @@ func (u *uploads) part(up, name string, off int64, data string) (any, *rexctl.Er
 		committed += int64(len(b))
 	}
 	m.Last = now
-	u.save(id, m)
+	// The bytes may have landed already. A retry of this part is accepted as
+	// a repeat, so failing here only costs that retry.
+	if err := u.save(id, m); err != nil {
+		return nil, &rexctl.Error{Code: "internal", Message: "upload metadata: " + err.Error()}
+	}
 	u.arm()
 	return map[string]any{"committed": committed}, nil
 }
