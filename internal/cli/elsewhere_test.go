@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/vizkid/roar/internal/rex"
+	"github.com/vizkid/rexkit/rex"
 )
 
 // stubElsewhere makes hosts the other Rex hosts, where answer resolves a

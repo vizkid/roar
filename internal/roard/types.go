@@ -8,8 +8,8 @@ import (
 	"context"
 	"time"
 
+	"github.com/vizkid/rexkit/rexctl"
 	"github.com/vizkid/roar/internal/config"
-	"github.com/vizkid/roar/internal/rexctl"
 	"github.com/vizkid/roar/internal/store"
 )
 

@@ -12,9 +12,9 @@ import (
 
 	"github.com/fsnotify/fsnotify"
 
+	"github.com/vizkid/rexkit/rexctl"
 	"github.com/vizkid/roar/internal/config"
 	"github.com/vizkid/roar/internal/fallback"
-	"github.com/vizkid/roar/internal/rexctl"
 	"github.com/vizkid/roar/internal/roard"
 )
 

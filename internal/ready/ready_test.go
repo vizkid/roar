@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/vizkid/roar/internal/rex"
+	"github.com/vizkid/rexkit/rex"
 )
 
 func fixture(t *testing.T, name string) string {

@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/vizkid/roar/internal/rex"
+	"github.com/vizkid/rexkit/rex"
 )
 
 var (

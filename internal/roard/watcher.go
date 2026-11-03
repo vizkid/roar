@@ -8,7 +8,7 @@ import (
 
 	"github.com/fsnotify/fsnotify"
 
-	"github.com/vizkid/roar/internal/rexctl"
+	"github.com/vizkid/rexkit/rexctl"
 	"github.com/vizkid/roar/internal/store"
 )
 

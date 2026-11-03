@@ -414,7 +414,7 @@ These are the tests to write first. They extend the numbered list in SPEC.md.
 | Criteria | Tests |
 | --- | --- |
 | 42, 43 | `TestOneRoardPerStore` |
-| 44 | `TestSessionReconnectsAndRunsSetup`, `TestSessionBacksOffOnDialFailure` (`internal/rexctl`); live run |
+| 44 | `TestSessionReconnectsAndRunsSetup`, `TestSessionBacksOffOnDialFailure` (`rexctl` in github.com/vizkid/rexkit); live run |
 | 45 | `TestCallerCheck` |
 | 46, 50 | `TestEnqueueCallsBackEachChange`, `TestPeerSendSettlesByCallback` |
 | 47 | `TestUploadRoundTrip`, `TestUploadRefusesConflictsAndGaps`, `TestUploadCommitChecksDigest`, `TestPeerSendsLargeAttachmentInFewParts` |
@@ -443,7 +443,7 @@ The live run on Stiletto, Baroni and Colonelk reports, for a small send and for 
 | A client can offer actions that other clients call | Live on Stiletto, 2026-11-01, API revision 7. A prototype connected, set label `roard`, and listed `roar.ping` in `client.keymap`. `client.perform` returned its result in 18 ms. An action it did not list failed with `not_supported` before reaching it. |
 | Another host can call it, and Rex names the caller | The same prototype, called from Baroni with `rex -S https://stiletto-rex.tail4f2cce.ts.net api call client.perform`. The principal was kind `tailscale`, node `baroni`, with the Tailscale user ID. A local call showed kind `peer`, uid 501. |
 | The `rex` CLI refuses large requests | `client.perform` with 512 KiB and 900 KiB arguments failed in the CLI: "encoded request is 524459 bytes, limit is 65536". The server's welcome reports `max_message_bytes` 1048576. |
-| Roar's own client reaches another host over Tailscale and sends large messages | `TestLiveRemoteControl` (`internal/rexctl`), 2026-11-01, from Stiletto. Against Baroni: a client offered an action on Baroni's server, another called it; small call 16 ms, 700 KiB call 840 ms, principal kind `tailscale`. Against Colonelk: 13 ms and 568 ms. |
+| Roar's own client reaches another host over Tailscale and sends large messages | `TestLiveRemoteControl` (`rexctl` in github.com/vizkid/rexkit, run with `REXKIT_LIVE=1`), 2026-11-01, from Stiletto. Against Baroni: a client offered an action on Baroni's server, another called it; small call 16 ms, 700 KiB call 840 ms, principal kind `tailscale`. Against Colonelk: 13 ms and 568 ms. |
 | Baroni and Colonelk support it | Both servers list `client.keymap`, `client.perform`, `client.reply` and `client.set_label`. roard itself has not run on Linux yet. |
 | Terminal events | The local server's terminal block type lists `program_status_changed`, `program_status_removed`, `process_changed` and `child_exited`. `block_event` arrives only with `event_scope` `all`. |
 | A block data connection cannot carry an upload | The reference's "Data Connections" section: bytes flow only from the server to the client. |

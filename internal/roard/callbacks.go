@@ -6,8 +6,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/vizkid/rexkit/rexctl"
 	"github.com/vizkid/roar/internal/config"
-	"github.com/vizkid/roar/internal/rexctl"
 )
 
 // callbacks calls roar.result on senders, one queue per sender so results

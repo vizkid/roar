@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/vizkid/roar/internal/rex"
+	"github.com/vizkid/rexkit/rex"
 )
 
 // elsewhereWait bounds the search of other hosts. It runs only after a send

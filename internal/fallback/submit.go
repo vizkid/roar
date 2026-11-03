@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
+	"github.com/vizkid/rexkit/rex"
 	"github.com/vizkid/roar/internal/ready"
-	"github.com/vizkid/roar/internal/rex"
 )
 
 // PasteWait is how long a mid-turn paste may take to show in the composer

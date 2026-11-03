@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/vizkid/rexkit/rex"
+	"github.com/vizkid/rexkit/rextest"
 	"github.com/vizkid/roar/internal/agenttest"
 	"github.com/vizkid/roar/internal/envelope"
-	"github.com/vizkid/roar/internal/rex"
-	"github.com/vizkid/roar/internal/rextest"
 	"github.com/vizkid/roar/internal/store"
 )
 

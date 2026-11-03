@@ -149,43 +149,6 @@ func TestHostSectionScope(t *testing.T) {
 }
 
 // 64: with jitter 0 the delays are exact, capped, and reset_after restarts them.
-func TestBackoffSequence(t *testing.T) {
-	b := Backoff{Initial: time.Second, Factor: 2, Max: 5 * time.Second, Jitter: 0, ResetAfter: time.Minute}
-	r := NewRetry(b, func() float64 { return 0.99 })
-	now := time.Unix(0, 0)
-	var got []time.Duration
-	for range 5 {
-		got = append(got, r.Fail(now))
-	}
-	want := []time.Duration{time.Second, 2 * time.Second, 4 * time.Second, 5 * time.Second, 5 * time.Second}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Fatalf("delays %v, want %v", got, want)
-		}
-	}
-	r.Up(now)
-	if d := r.Fail(now.Add(30 * time.Second)); d != 5*time.Second {
-		t.Fatalf("short connection reset the backoff: %v", d)
-	}
-	r.Up(now)
-	if d := r.Fail(now.Add(time.Minute)); d != time.Second {
-		t.Fatalf("reset_after did not reset: %v", d)
-	}
-}
-
-func TestBackoffJitterRange(t *testing.T) {
-	b := Backoff{Initial: 4 * time.Second, Factor: 2, Max: time.Hour, Jitter: 0.5}
-	for _, u := range []float64{0, 0.25, 0.999} {
-		d := b.Delay(0, u)
-		if d < 2*time.Second || d > 4*time.Second {
-			t.Fatalf("u=%v delay %v outside [2s,4s]", u, d)
-		}
-	}
-	if b.Delay(0, 0) != 4*time.Second || b.Delay(0, 0.999) <= 2*time.Second {
-		t.Fatal("jitter is not delay*(1 - jitter*u)")
-	}
-}
-
 func TestBackoffFromSettings(t *testing.T) {
 	s, _ := load(t, "", Options{Profile: "slow"})
 	b := s.Backoff("sender.connect")

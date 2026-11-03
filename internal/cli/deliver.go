@@ -8,9 +8,9 @@ import (
 	"path/filepath"
 	"syscall"
 
+	"github.com/vizkid/rexkit/rex"
 	"github.com/vizkid/roar/internal/fallback"
 	"github.com/vizkid/roar/internal/ready"
-	"github.com/vizkid/roar/internal/rex"
 	"github.com/vizkid/roar/internal/store"
 )
 

@@ -8,8 +8,8 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/vizkid/rexkit/rex"
 	"github.com/vizkid/roar/internal/claude"
-	"github.com/vizkid/roar/internal/rex"
 )
 
 // cmdMCP is the adapter Claude starts as its MCP server. It never fails

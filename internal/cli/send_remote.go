@@ -9,9 +9,9 @@ import (
 	"os"
 	"strings"
 
+	"github.com/vizkid/rexkit/rex"
 	"github.com/vizkid/roar/internal/envelope"
 	"github.com/vizkid/roar/internal/remote"
-	"github.com/vizkid/roar/internal/rex"
 )
 
 // splitHost separates a "host-label:" prefix that names a Rex host. Block

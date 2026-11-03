@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/vizkid/roar/internal/rexctl"
-	"github.com/vizkid/roar/internal/rextest"
+	"github.com/vizkid/rexkit/rexctl"
+	"github.com/vizkid/rexkit/rextest"
 )
 
 func sessionBlocks(t *testing.T, c *rexctl.Client, sid string) []string {

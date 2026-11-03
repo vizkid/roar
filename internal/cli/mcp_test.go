@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/vizkid/roar/internal/rex"
+	"github.com/vizkid/rexkit/rex"
 )
 
 // The Claude adapter trusts only its own Claude's status record.

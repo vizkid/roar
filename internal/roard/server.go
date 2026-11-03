@@ -11,8 +11,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/vizkid/rexkit/rexctl"
 	"github.com/vizkid/roar/internal/envelope"
-	"github.com/vizkid/roar/internal/rexctl"
 	"github.com/vizkid/roar/internal/store"
 )
 

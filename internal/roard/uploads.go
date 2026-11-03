@@ -11,8 +11,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/vizkid/rexkit/rexctl"
 	"github.com/vizkid/roar/internal/envelope"
-	"github.com/vizkid/roar/internal/rexctl"
 )
 
 // uploads keeps large messages arriving in parts, under <store>/uploads/<id>.

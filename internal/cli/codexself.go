@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/vizkid/rexkit/rex"
 	"github.com/vizkid/roar/internal/codex"
-	"github.com/vizkid/roar/internal/rex"
 	"github.com/vizkid/roar/internal/store"
 )
 

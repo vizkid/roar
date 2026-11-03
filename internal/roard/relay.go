@@ -5,7 +5,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/vizkid/roar/internal/rexctl"
+	"github.com/vizkid/rexkit/rexctl"
 )
 
 // RelayLabel is the session that older Roar kept on every host for its

@@ -5,8 +5,8 @@ import (
 	"os"
 	"time"
 
+	"github.com/vizkid/rexkit/rex"
 	"github.com/vizkid/roar/internal/cli"
-	"github.com/vizkid/roar/internal/rex"
 )
 
 func main() {

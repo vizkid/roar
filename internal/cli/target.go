@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 
+	"github.com/vizkid/rexkit/rex"
 	"github.com/vizkid/roar/internal/envelope"
-	"github.com/vizkid/roar/internal/rex"
 )
 
 // resolveTarget is the target rule send and ready share: an optional host

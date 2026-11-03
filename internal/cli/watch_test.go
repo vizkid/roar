@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/vizkid/roar/internal/rexctl"
-	"github.com/vizkid/roar/internal/rextest"
+	"github.com/vizkid/rexkit/rexctl"
+	"github.com/vizkid/rexkit/rextest"
 	"github.com/vizkid/roar/internal/store"
 )
 

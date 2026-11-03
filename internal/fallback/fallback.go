@@ -9,9 +9,9 @@ import (
 	"errors"
 	"time"
 
+	"github.com/vizkid/rexkit/rex"
 	"github.com/vizkid/roar/internal/envelope"
 	"github.com/vizkid/roar/internal/ready"
-	"github.com/vizkid/roar/internal/rex"
 	"github.com/vizkid/roar/internal/store"
 )
 

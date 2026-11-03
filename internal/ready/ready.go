@@ -5,7 +5,7 @@ package ready
 import (
 	"strings"
 
-	"github.com/vizkid/roar/internal/rex"
+	"github.com/vizkid/rexkit/rex"
 )
 
 // Verdict is the outcome of the proof.

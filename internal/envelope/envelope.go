@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/vizkid/rexkit/rex"
 )
 
 // Kind says whether the sender expects action.
@@ -20,14 +22,7 @@ const (
 const MaxText = 256 << 10
 
 // Address names one Rex pane. IDs resolve only on the server named by HostID.
-type Address struct {
-	HostID   string `json:"host_id"`
-	Endpoint string `json:"endpoint,omitempty"`
-	Session  string `json:"session"`
-	Block    string `json:"block"`
-	// Label is the session label when the message was sent. Display only.
-	Label string `json:"label,omitempty"`
-}
+type Address = rex.Address
 
 // Envelope is written once and never changed.
 type Envelope struct {
