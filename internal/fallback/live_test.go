@@ -1,6 +1,7 @@
 package fallback
 
 import (
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -138,6 +139,42 @@ func TestLiveCodexMidTurn(t *testing.T) {
 		t.Fatalf("the model did not act on the steer:\n%s", screen)
 	}
 	t.Logf("settled pane:\n%s", screen)
+}
+
+// A long message mid-turn: Codex caps its composer's height and scrolls the
+// paste to its end, so the header leaves the screen (live: paste_not_seen on
+// Baroni, 2026-11-03). The body's last line fills the pane's width, which
+// leaves the cursor on a blank row below the text.
+func TestLiveCodexMidTurnLongPaste(t *testing.T) {
+	dir := liveDir(t)
+	f := setup(t)
+	session, block := liveAgent(t, f, dir, "codex", "-a", "never", "-s", "read-only")
+	task := "Run the shell command `sleep 25`, then reply with the word FIRST."
+	if _, err := f.rex.Run(t.Context(), "send", "-s", session, "-b", block, task); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(time.Second)
+	if _, err := f.rex.Run(t.Context(), "send-key", "-s", session, "-b", block, "enter"); err != nil {
+		t.Fatal(err)
+	}
+	waitState(t, f, session, block, "working")
+	time.Sleep(5 * time.Second)
+	var b strings.Builder
+	b.WriteString("Roar live long steer. When you reply, add the word STEERED. Ignore the filler below.\n\n")
+	for i := 0; b.Len() < 760; i++ {
+		fmt.Fprintf(&b, "filler%03d ", i)
+	}
+	b.WriteString("\n\nEnd of filler.")
+	e := f.queue(session, block, b.String())
+	want(t, f.attempt(e.ID), store.Submitted, "")
+	if m, _ := f.st.Get(e.ID); m.Record.Proof != "rex_steer" {
+		t.Fatalf("proof %q, want rex_steer", m.Record.Proof)
+	}
+	waitRest(t, f, session, block)
+	screen, _ := f.rex.Run(t.Context(), "capture", "-s", session, "-b", block, "--trim")
+	if !strings.Contains(string(screen), "STEERED") {
+		t.Fatalf("the model did not act on the steer:\n%s", screen)
+	}
 }
 
 func waitState(t *testing.T, f *fixture, session, block, state string) {

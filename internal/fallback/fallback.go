@@ -109,10 +109,11 @@ func (d *Deliverer) typeMessage(ctx context.Context, c *store.Claim, proof ready
 		err := c.Move(store.Unknown, d.Now(), func(r *store.Record) { r.Reason = reason })
 		return outcome(c.Message()), err
 	}
-	if err := d.Rex.Paste(ctx, to.Session, to.Block, envelope.TerminalSafe(m.Render())); err != nil {
+	text := envelope.TerminalSafe(m.Render())
+	if err := d.Rex.Paste(ctx, to.Session, to.Block, text); err != nil {
 		return unknown("paste_failed")
 	}
-	if proof.MidTurn() && !d.pasteShown(ctx, to.Session, to.Block, agent, "[roar "+m.Envelope.ID) {
+	if proof.MidTurn() && !d.pasteShown(ctx, to.Session, to.Block, agent, text) {
 		return unknown("paste_not_seen")
 	}
 	if r := ready.Status(ctx, d.Rex, to.Session, to.Block, pid); r.Verdict != ready.Empty {

@@ -222,6 +222,8 @@ func textRow(s string) row {
 // Codex shows earlier prompts in its transcript with the composer's own
 // marker. Only the message's ID proves the composer holds our paste.
 func TestHoldsNeedsOwnHeader(t *testing.T) {
+	const old = "[roar rm-OLD from a/1 inform]\nfirst paragraph\n\nsecond paragraph"
+	const own = "[roar rm-NEW from a/1 inform]\nfirst paragraph\n\nsecond paragraph"
 	rows := []row{
 		textRow("› [roar rm-OLD from a/1 inform]"),
 		textRow(""),
@@ -231,16 +233,67 @@ func TestHoldsNeedsOwnHeader(t *testing.T) {
 		textRow("  second paragraph"),
 	}
 	sc := screen{rows: rows, cursorRow: 6, cursorCol: 19}
-	if !holds(sc, "codex", "[roar rm-NEW") {
+	if !holds(sc, "codex", own) {
 		t.Fatal("own paste across a blank row not seen")
 	}
-	if holds(sc, "codex", "[roar rm-OLD") {
+	if holds(sc, "codex", old) {
 		t.Fatal("an earlier prompt counted as the paste")
 	}
 	sc.rows[2] = textRow("› ")
 	sc.rows = sc.rows[:3]
 	sc.cursorRow = 3
-	if holds(sc, "codex", "[roar rm-OLD") {
+	if holds(sc, "codex", old) {
 		t.Fatal("looked past the empty composer's own marker")
+	}
+}
+
+// Codex caps its composer's height and scrolls a long paste to its end, so
+// the header row leaves the screen. Captured live from Codex 0.166.0 with a
+// 968-byte message: the cursor sits on a blank row two rows below the text,
+// and a dim arrow marks the hidden rows.
+func TestHoldsScrolledComposer(t *testing.T) {
+	sc, err := parseScreen(fixture(t, "codex-scrolled-paste"), 24)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile("testdata/codex-scrolled-paste.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(b)
+	if !holds(sc, "codex", text) {
+		t.Fatal("scrolled paste not seen")
+	}
+	// Another message's text, or ours with a changed tail, is not our paste.
+	if holds(sc, "codex", strings.Replace(text, "xxxxx.", "yyyyy.", 1)) {
+		t.Fatal("a different tail counted as the paste")
+	}
+	if holds(sc, "codex", text+" more") {
+		t.Fatal("a paste whose end is not shown counted")
+	}
+	// A short scrolled tail could belong to many messages.
+	short := sc
+	short.rows = append([]row{}, sc.rows...)
+	for i := 9; i < 19; i++ {
+		short.rows[i] = textRow("")
+	}
+	short.rows[9] = textRow("› xxxxx.")
+	if holds(short, "codex", text) {
+		t.Fatal("a short tail counted as the paste")
+	}
+}
+
+// Rows above the marker that are not composer rows end the search: a
+// transcript line never joins the composer text.
+func TestHoldsStopsAtTranscript(t *testing.T) {
+	rows := []row{
+		textRow("› [roar rm-NEW from a/1 inform]"),
+		textRow("• Working (3s)"),
+		textRow(""),
+		textRow("  tail of something"),
+	}
+	sc := screen{rows: rows, cursorRow: 4, cursorCol: 21}
+	if holds(sc, "codex", "[roar rm-NEW from a/1 inform]\ntail of something") {
+		t.Fatal("joined a transcript row to the composer")
 	}
 }

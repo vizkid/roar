@@ -15,12 +15,12 @@ var (
 	PasteCheck = 100 * time.Millisecond
 )
 
-// pasteShown waits for the composer to hold the message whose header
-// starts with head. A mid-turn submit is proved by the composer emptying,
-// which proves nothing unless our text was there first.
-func (d *Deliverer) pasteShown(ctx context.Context, session, block, agent, head string) bool {
+// pasteShown waits for the composer to show the pasted text. A mid-turn
+// submit is proved by the composer emptying, which proves nothing unless
+// our text was there first.
+func (d *Deliverer) pasteShown(ctx context.Context, session, block, agent, text string) bool {
 	return poll(ctx, PasteWait, func() bool {
-		return ready.Holds(ctx, d.Rex, session, block, agent, head)
+		return ready.Holds(ctx, d.Rex, session, block, agent, text)
 	})
 }
 

@@ -94,12 +94,12 @@ func Composer(ctx context.Context, c rex.Client, session, block, agent string) s
 	return ""
 }
 
-// Holds reports whether the composer holds the pasted text whose first
-// line starts with head, or, for a paste the agent folded into one
-// placeholder, any typed text at all.
-func Holds(ctx context.Context, c rex.Client, session, block, agent, head string) bool {
+// Holds reports whether the composer shows the pasted text, its start or a
+// scrolled tail, or, for a paste the agent folded into one placeholder, any
+// typed text at all.
+func Holds(ctx context.Context, c rex.Client, session, block, agent, text string) bool {
 	sc, ok := readScreen(ctx, c, session, block)
-	return ok && (holds(sc, agent, head) || drafted(sc, agent))
+	return ok && (holds(sc, agent, text) || drafted(sc, agent))
 }
 
 // readScreen reads the screen while the cursor shows; a hidden cursor

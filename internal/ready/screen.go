@@ -182,12 +182,32 @@ var placeholderFG = map[string]string{"devin": "2;124;124;124"}
 // typedText reports whether any cell from index start on is visible and
 // not the agent's placeholder.
 func (r row) typedText(start int, agent string) bool {
-	ph := placeholderFG[agent]
 	for i := start; i < len(r.cells); i++ {
-		c := r.cells[i]
-		if c.r != ' ' && c.r != ' ' && !c.dim && (ph == "" || c.fg != ph) {
+		if c := r.cells[i]; !isSpace(c.r) && typed(c, agent) {
 			return true
 		}
 	}
 	return false
 }
+
+// typed is the row's text from index start on, without dim or placeholder
+// cells, such as the dim arrow Codex draws for hidden composer rows.
+func (r row) typed(start int, agent string) string {
+	var b strings.Builder
+	for i := start; i < len(r.cells); i++ {
+		if c := r.cells[i]; typed(c, agent) {
+			b.WriteRune(c.r)
+		}
+	}
+	return b.String()
+}
+
+// typed reports a cell drawn as typed text: not dim, and not in the
+// agent's placeholder colour.
+func typed(c cell, agent string) bool {
+	ph := placeholderFG[agent]
+	return !c.dim && (ph == "" || c.fg != ph)
+}
+
+// isSpace reports a blank cell: a space or a no-break space.
+func isSpace(r rune) bool { return r == ' ' || r == '\u00a0' }

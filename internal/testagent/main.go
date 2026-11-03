@@ -10,6 +10,10 @@
 //	TESTAGENT_ON_PASTE  state to enter as soon as a paste arrives (simulates a race)
 //	TESTAGENT_WORK_MS   how long a submitted turn stays working (default 300)
 //	TESTAGENT_DROP_PASTE  ignore pastes, as if they never reached the composer
+//	TESTAGENT_COMPOSER_ROWS  show at most this many draft lines, scrolled to the
+//	                    end, as Codex does: the marker moves to the first shown
+//	                    line, a dim ↑ marks hidden lines, and the cursor sits on
+//	                    a blank row below the text
 //	TESTAGENT_API       built as agy: serve the fake agent API (agentapi.go)
 //
 // Built as codex or devin, Enter mid-turn adds the prompt to the running
@@ -93,6 +97,10 @@ func (a *agent) redrawLocked() {
 	}
 	rule := strings.Repeat("─", 40)
 	lines := strings.Split(string(a.draft), "\n")
+	scrolled := false
+	if n, _ := strconv.Atoi(os.Getenv("TESTAGENT_COMPOSER_ROWS")); n > 0 && len(lines) > n {
+		lines, scrolled = append(lines[len(lines)-n:], ""), true
+	}
 	top := rows - len(lines) // the composer grows upward, as real ones do
 	var b strings.Builder
 	b.WriteString("\x1b[2J\x1b[H")
@@ -101,7 +109,10 @@ func (a *agent) redrawLocked() {
 	if len(a.draft) == 0 {
 		b.WriteString(a.hint)
 	} else {
-		b.WriteString(strings.ReplaceAll(string(a.draft), "\n", "\r\n  "))
+		b.WriteString(strings.Join(lines, "\r\n  "))
+	}
+	if scrolled {
+		fmt.Fprintf(&b, "\x1b[%d;60H\x1b[2m↑\x1b[0m", top)
 	}
 	fmt.Fprintf(&b, "\x1b[%d;1H%s", rows, rule)
 	if a.sent != a.state {

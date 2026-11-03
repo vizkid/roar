@@ -4,6 +4,7 @@ package ready
 
 import (
 	"strings"
+	"unicode"
 
 	"github.com/vizkid/rexkit/rex"
 )
@@ -145,23 +146,70 @@ func drafted(sc screen, agent string) bool {
 	return false
 }
 
-// holds reports whether the composer holds the text whose first line
-// starts with head. It looks up from the cursor for the marker row and
-// reads that row only: a paragraph break draws a blank row inside a draft,
-// which ends drafted's scan. The message ID in head tells our paste from
-// an earlier prompt that the transcript shows with the same marker.
-func holds(sc screen, agent, head string) bool {
+// minTail is the least text, in non-space runes, that a scrolled composer
+// must show to prove it holds the end of our paste.
+const minTail = 32
+
+// holds reports whether the composer shows the pasted text. The composer
+// was proved empty and the pane is locked, so any of our text in it is our
+// paste. It accepts either form Codex draws:
+//
+//   - The start: the first line, with the message ID, begins the composer.
+//     The ID tells our paste from an earlier prompt in the transcript.
+//   - The end: Codex caps the composer's height and scrolls a long paste to
+//     its end, so the header leaves the screen. The composer then shows a
+//     tail of the text. A tail shorter than minTail could be anyone's.
+//
+// Whitespace is ignored, because the agent wraps lines where it likes.
+func holds(sc screen, agent, text string) bool {
+	shown, ok := composerText(sc, agent)
+	if !ok || shown == "" {
+		return false
+	}
+	first, _, _ := strings.Cut(text, "\n")
+	if head := squeeze(first); head != "" && strings.HasPrefix(shown, head) {
+		return true
+	}
+	return strings.HasSuffix(squeeze(text), shown) && len([]rune(shown)) >= minTail
+}
+
+// composerText is the typed text of the composer around the cursor, without
+// whitespace. It looks up from the cursor for the marker row, across blank
+// rows (a paragraph break, or the row Codex leaves the cursor on below a
+// scrolled paste) and indented continuation rows. Any other row is not the
+// composer, so it ends the search with ok false.
+func composerText(sc screen, agent string) (text string, ok bool) {
+	var rows []string
 	for i := sc.cursorRow - 1; i >= 0 && i < len(sc.rows); i-- {
 		r := sc.rows[i]
-		if r.isRule() {
-			return false
-		}
-		if len(r.cells) >= 1 && marker(r.cells[0].r, agent) {
-			rest := []rune(r.text())[1:]
-			return strings.HasPrefix(strings.TrimLeft(string(rest), " \u00a0"), head)
+		switch {
+		case r.isRule():
+			return "", false
+		case len(r.cells) >= 1 && marker(r.cells[0].r, agent):
+			rows = append(rows, r.typed(1, agent))
+			var b strings.Builder
+			for j := len(rows) - 1; j >= 0; j-- {
+				b.WriteString(rows[j])
+			}
+			return squeeze(b.String()), true
+		case r.blank():
+		case len(r.cells) >= 2 && isSpace(r.cells[0].r) && isSpace(r.cells[1].r):
+			rows = append(rows, r.typed(2, agent))
+		default:
+			return "", false
 		}
 	}
-	return false
+	return "", false
+}
+
+// squeeze drops all whitespace.
+func squeeze(s string) string {
+	return strings.Map(func(r rune) rune {
+		if unicode.IsSpace(r) {
+			return -1
+		}
+		return r
+	}, s)
 }
 
 // composer checks the cursor row. It returns "" for an empty composer.

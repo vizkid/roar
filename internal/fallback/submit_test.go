@@ -39,6 +39,22 @@ func TestPasteNotSeenLeavesUnknown(t *testing.T) {
 	}
 }
 
+// Codex caps the composer's height and scrolls a long paste to its end, so
+// the header leaves the screen and the cursor sits on a blank row. Roar must
+// still see its own paste (live: paste_not_seen on Baroni, 2026-11-03).
+func TestSteersScrolledComposer(t *testing.T) {
+	f := setup(t)
+	a := agenttest.Start(t, f.rex, f.bin, "codex", "TESTAGENT_COMPOSER_ROWS=3")
+	a.Control("working")
+	body := "one alpha bravo charlie delta echo\ntwo foxtrot golf hotel india juliett\n" +
+		"three kilo lima mike november oscar\nfour papa quebec romeo sierra tango\nfive uniform victor whiskey"
+	e := f.queue(a.Session, a.Block, body)
+	want(t, f.attempt(e.ID), store.Submitted, "")
+	if got := a.Submitted(); len(got) != 1 || got[0] != e.Render() {
+		t.Fatalf("codex received %q, want %q", agenttest.Joined(got), e.Render())
+	}
+}
+
 // A paragraph break draws a blank row inside the composer. Roar must still
 // see its own paste, or the text stays behind as a draft and every later
 // message waits behind it.
