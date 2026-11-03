@@ -165,7 +165,17 @@ func (s *server) maxPart() int {
 // job runs work in the pool and calls the result back.
 func (s *server) job(client string, work func(job string) Result) (any, *rexctl.Error) {
 	job := fmt.Sprintf("job-%d", s.jobs.Add(1))
-	if err := s.pool.submit(func() { s.cb.send(client, work(job), Hints{}) }); err != nil {
+	queued := time.Now()
+	if err := s.pool.submit(func() {
+		start := time.Now()
+		r := work(job)
+		// A slow job is either waiting for a worker or slow itself; the log
+		// says which, as it does for slow handlers.
+		if wait, ran := start.Sub(queued), time.Since(start); wait+ran > time.Second {
+			s.d.logf("%s for %s: waited %v for a worker, ran %v", job, client, wait.Round(time.Millisecond), ran.Round(time.Millisecond))
+		}
+		s.cb.send(client, r, Hints{})
+	}); err != nil {
 		return nil, refused("%v", err)
 	}
 	return map[string]any{"job": job}, nil

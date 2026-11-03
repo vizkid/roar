@@ -50,6 +50,12 @@ func xmlText(v string) string {
 	return b.String()
 }
 
+// plist is roard's launchd job. ProcessType Interactive: without it launchd
+// throttles a job's CPU and I/O, and on a loaded host roard's pane probes ran
+// past their freshness bound (stale_probe) and roar.panes took 17 s where
+// the same listing from a pane took 2 s (Baroni, 2026-11-03, load 60-130).
+// Delivery types into panes the user is watching, so it is not background
+// work.
 func (s ServiceSpec) plist() []byte {
 	return []byte(fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -60,6 +66,7 @@ func (s ServiceSpec) plist() []byte {
 	<array><string>%s</string><string>daemon</string></array>
 	<key>RunAtLoad</key><true/>
 	<key>KeepAlive</key><true/>
+	<key>ProcessType</key><string>Interactive</string>
 	<key>ThrottleInterval</key><integer>%d</integer>
 	<key>EnvironmentVariables</key>
 	<dict>

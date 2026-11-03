@@ -40,7 +40,7 @@ func TestServiceDarwin(t *testing.T) {
 	}
 	plist := string(b)
 	for _, want := range []string{"<string>roar.roard</string>", "<string>/opt/a&amp;b/roar</string>", "<string>daemon</string>",
-		"<key>KeepAlive</key>", "<integer>2</integer>", "/opt/rex:"} {
+		"<key>KeepAlive</key>", "<integer>2</integer>", "/opt/rex:", "<key>ProcessType</key><string>Interactive</string>"} {
 		if !strings.Contains(plist, want) {
 			t.Fatalf("plist lacks %q:\n%s", want, plist)
 		}
