@@ -25,4 +25,4 @@ roar send --file <path> <name> "text"       # attach; repeatable
 `unbound_codex_thread`: Roar does not yet know your pane; it learns it from the first message you receive.
 In Antigravity (agy), run `roar bind agy` once per session so messages reach you directly, also while you work.
 If a name is ambiguous, use `<tab or pane>@<session>`. In place of a label, `codex`, `claude`, `devin`, `agy`, `left`, `right`, `top`, `bottom` or `top-left` also name a pane, as in `codex@api`. `peer` alone names the other pane in your own tab. Prefix `<host>:` for another Rex host.
-`rex ls` lists sessions. `roar inbox` lists messages waiting for you.
+`rex ls` lists this host's sessions, `rex -S <host> ls` another host's. `roar inbox` lists messages waiting for you.

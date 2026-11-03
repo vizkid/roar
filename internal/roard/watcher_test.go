@@ -71,6 +71,69 @@ func TestGapTimerOnlyWhenNeeded(t *testing.T) {
 	}
 }
 
+// sessionEvent is a session's event as the server sends it: wrapped in a
+// session_event. The first tests fed the inner event bare, so roard passed
+// them and ignored every live event (2026-11-03).
+func sessionEvent(typ, payload string) rexctl.Event {
+	return rexctl.Event{Type: "session_event", Payload: []byte(`{"session_id":"session:s","event":{"type":"` + typ + `","payload":` + payload + `}}`)}
+}
+
+func blockEvent(block, name string) rexctl.Event {
+	return sessionEvent("block_event", `{"block_id":"`+block+`","creator_name":"com.superlogical.terminal","name":"`+name+`"}`)
+}
+
+// Live, 2026-11-03: an attempt read the agent as working, its done event
+// came during that attempt, and the attempt the event caused lost the
+// message lock to it. Nothing else came, so the message waited for the
+// sweep. An event during an attempt runs one more attempt after it.
+func TestEventDuringAttemptRunsAgain(t *testing.T) {
+	h := newHarness(t, "watcher.coalesce=1ms")
+	release := make(chan struct{})
+	started := make(chan struct{}, 4)
+	h.del.fn = func(string) {
+		started <- struct{}{}
+		if h.del.count("block:r") == 1 {
+			<-release // the first attempt is still reading the agent
+		}
+	}
+	w := newWatcher(context.Background(), h.deps, newSubs(nil), newPool(2))
+	defer w.stop()
+	w.haveLock(true)
+	e := h.envelope("raced")
+	h.st.Put(e, time.Now())
+	hold(t, h.st, e.ID, "busy")
+	w.cover(e.To.Block)
+	<-started
+	w.rexEvent(blockEvent("block:r", "program_status_changed"))
+	time.Sleep(50 * time.Millisecond) // the event's own attempt runs and ends
+	close(release)
+	deadline := time.Now().Add(2 * time.Second)
+	for h.del.count("block:r") < 3 {
+		if time.Now().After(deadline) {
+			t.Fatalf("attempts: %d; none after the attempt the event overlapped", h.del.count("block:r"))
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+// A pane that closes with a held message gets an attempt, which expires it.
+func TestBlockClosedSchedulesAttempt(t *testing.T) {
+	h := newHarness(t, "watcher.coalesce=10ms")
+	w := newWatcher(context.Background(), h.deps, newSubs(nil), newPool(1))
+	defer w.stop()
+	w.haveLock(true)
+	e := h.envelope("closing")
+	h.st.Put(e, time.Now())
+	hold(t, h.st, e.ID, "busy")
+	w.refresh(e.To.Block)
+	before := h.del.count("block:r")
+	w.rexEvent(sessionEvent("block_closed", `{"block_id":"block:r"}`))
+	time.Sleep(100 * time.Millisecond)
+	if got := h.del.count("block:r") - before; got != 1 {
+		t.Fatalf("attempts after block_closed: %d", got)
+	}
+}
+
 // Terminal events for a pane with pending work schedule an attempt; others
 // cost nothing.
 func TestRexEventRouting(t *testing.T) {
@@ -83,14 +146,14 @@ func TestRexEventRouting(t *testing.T) {
 	hold(t, h.st, e.ID, "busy")
 	w.refresh(e.To.Block)
 	before := h.del.count("block:r")
-	w.rexEvent(rexctl.Event{Type: "block_event", Payload: []byte(`{"block_id":"block:other","name":"program_status_changed"}`)})
-	w.rexEvent(rexctl.Event{Type: "block_event", Payload: []byte(`{"block_id":"block:r","name":"bell"}`)})
+	w.rexEvent(blockEvent("block:other", "program_status_changed"))
+	w.rexEvent(blockEvent("block:r", "bell"))
 	time.Sleep(50 * time.Millisecond)
 	if h.del.count("block:r") != before {
 		t.Fatal("an unrelated event caused an attempt")
 	}
 	for range 3 { // coalesced into one
-		w.rexEvent(rexctl.Event{Type: "block_event", Payload: []byte(`{"block_id":"block:r","name":"program_status_changed"}`)})
+		w.rexEvent(blockEvent("block:r", "program_status_changed"))
 	}
 	time.Sleep(100 * time.Millisecond)
 	if got := h.del.count("block:r") - before; got != 1 {

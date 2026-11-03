@@ -27,6 +27,9 @@ func (w *watcher) refresh(block string) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	setFlag(w.pending, block, pending)
+	if !pending {
+		delete(w.events, block) // a later count change only schedules a no-op
+	}
 	setFlag(w.gaps, block, gap)
 	w.armGap()
 	if pending || gap {

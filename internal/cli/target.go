@@ -25,8 +25,11 @@ func resolveTarget(ctx context.Context, env Env, raw string) (envelope.Address, 
 			return to, c, uerr
 		}
 	}
-	if target != "peer" || host != "" || !errors.Is(err, rex.ErrNoTarget) {
+	if host != "" || !errors.Is(err, rex.ErrNoTarget) {
 		return to, c, err
+	}
+	if target != "peer" {
+		return to, c, elsewhere(ctx, c, target, err)
 	}
 	me, serr := self(ctx, env)
 	if serr != nil {

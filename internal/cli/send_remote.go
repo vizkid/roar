@@ -23,18 +23,9 @@ func splitHost(ctx context.Context, c rex.Client, target string) (host, rest str
 	if !ok || label == "block" || label == "session" {
 		return "", target, nil
 	}
-	var out struct {
-		Hosts []struct {
-			Host struct {
-				Label string `json:"label"`
-			} `json:"host"`
-		} `json:"hosts"`
-	}
-	if err := c.JSON(ctx, &out, "hosts", "--json"); err == nil {
-		for _, h := range out.Hosts {
-			if strings.EqualFold(h.Host.Label, label) {
-				return h.Host.Label, rest, nil
-			}
+	for _, h := range hostLabels(ctx, c) {
+		if strings.EqualFold(h, label) {
+			return h, rest, nil
 		}
 	}
 	// Rex gives this host an empty label, but other hosts know it by its

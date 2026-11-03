@@ -39,6 +39,7 @@ type watcher struct {
 	pending map[string]bool // panes whose queued messages need the watcher
 	gaps    map[string]bool // panes whose holds no event reports
 	timers  map[string]*time.Timer
+	events  map[string]uint64 // trigger events seen per pane, to catch one during an attempt
 	gap     *time.Timer
 	sweep   *time.Timer
 	locked  bool
@@ -51,7 +52,7 @@ type watcher struct {
 
 func newWatcher(ctx context.Context, d Deps, s *subs, p *pool) *watcher {
 	return &watcher{ctx: ctx, d: d, subs: s, pool: p, pending: map[string]bool{}, gaps: map[string]bool{},
-		timers: map[string]*time.Timer{}, kick: make(chan struct{}, 1)}
+		timers: map[string]*time.Timer{}, events: map[string]uint64{}, kick: make(chan struct{}, 1)}
 }
 
 // start watches the notify directory, then takes watch.lock and reconciles.
@@ -207,8 +208,15 @@ func (w *watcher) schedule(block string) {
 		delete(w.timers, block)
 		w.mu.Unlock()
 		err := w.pool.submit(func() {
+			seen := w.eventCount(block)
 			w.d.Delivery.Block(w.ctx, block)
 			w.refresh(block)
+			// An event during the attempt may report what the attempt read
+			// too early, and the attempt that event caused may have lost the
+			// message lock to this one. So look once more.
+			if w.eventCount(block) != seen {
+				w.schedule(block)
+			}
 		})
 		if err != nil {
 			w.d.logf("attempt %s: %v", block, err)
@@ -216,8 +224,22 @@ func (w *watcher) schedule(block string) {
 	})
 }
 
-// rexEvent routes one event from roard's connection.
+// rexEvent routes one event from roard's connection. A session's events,
+// block_event and block_closed among them, arrive inside a session_event;
+// server events such as client_left arrive bare.
 func (w *watcher) rexEvent(e rexctl.Event) {
+	if e.Type == "session_event" {
+		var s struct {
+			Event struct {
+				Type    string          `json:"type"`
+				Payload json.RawMessage `json:"payload"`
+			} `json:"event"`
+		}
+		if json.Unmarshal(e.Payload, &s) != nil {
+			return
+		}
+		e = rexctl.Event{Seq: e.Seq, Type: s.Event.Type, Payload: s.Event.Payload}
+	}
 	var p struct {
 		BlockID  string `json:"block_id"`
 		ClientID string `json:"client_id"`
@@ -237,6 +259,9 @@ func (w *watcher) rexEvent(e rexctl.Event) {
 	case e.Type == "block_closed", triggers[p.Name]:
 		w.mu.Lock()
 		pending := w.pending[p.BlockID]
+		if pending {
+			w.events[p.BlockID]++
+		}
 		w.mu.Unlock()
 		if e.Type == "block_closed" {
 			w.d.logf("block_closed %s pending=%v", p.BlockID, pending)
@@ -245,4 +270,10 @@ func (w *watcher) rexEvent(e rexctl.Event) {
 			w.schedule(p.BlockID)
 		}
 	}
+}
+
+func (w *watcher) eventCount(block string) uint64 {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.events[block]
 }

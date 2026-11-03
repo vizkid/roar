@@ -4,10 +4,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/vizkid/roar/internal/rexctl"
 	"github.com/vizkid/roar/internal/rextest"
 	"github.com/vizkid/roar/internal/store"
 )
@@ -27,14 +30,25 @@ func eventually(t *testing.T, within time.Duration, what string, ok func() bool)
 // with its own client label so it never meets a real roard.
 func (h *harness) daemon() {
 	h.t.Helper()
+	// HOME is a temporary one, so roard would look for Rex's socket under it
+	// and run with no Rex events at all, waking only on store writes. Give it
+	// the real server the harness's commands use.
 	vars := map[string]string{"ROAR_HOME": h.home, "ROAR_ROARD_LABEL": rextest.Label("roard"),
-		"ROAR_RELAY_LABEL": rextest.Label("relay"), "HOME": h.t.TempDir()}
+		"ROAR_RELAY_LABEL": rextest.Label("relay"), "HOME": h.t.TempDir(),
+		"REX_SERVER": rexctl.LocalEndpoint(os.Getenv, os.Getenv("HOME"))}
 	var log bytes.Buffer
 	env := Env{Stdout: &log, Stderr: &log, Getenv: func(k string) string { return vars[k] }, Now: time.Now, Rex: h.rex}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() { done <- cmdDaemon(ctx, env, nil) }()
-	h.t.Cleanup(func() { cancel(); <-done })
+	h.t.Cleanup(func() {
+		cancel()
+		<-done
+		if h.t.Failed() { // roard's own account is the only record of a missed wake
+			b, _ := os.ReadFile(filepath.Join(h.home, "roard.log"))
+			h.t.Logf("roard.log:\n%s", b)
+		}
+	})
 	st, err := store.Open(h.home)
 	if err != nil {
 		h.t.Fatal(err)
