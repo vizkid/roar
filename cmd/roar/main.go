@@ -10,7 +10,6 @@ import (
 )
 
 func main() {
-	self, _ := os.Executable() // empty on error: no watcher, the rest works
 	os.Exit(cli.Main(os.Args[1:], cli.Env{
 		Stdin:  os.Stdin,
 		Stdout: os.Stdout,
@@ -18,6 +17,5 @@ func main() {
 		Getenv: os.Getenv,
 		Now:    time.Now,
 		Rex:    rex.Local(),
-		Self:   self,
 	}))
 }

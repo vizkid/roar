@@ -12,6 +12,7 @@ import (
 	"syscall"
 
 	"github.com/vizkid/rexkit/rex"
+	"github.com/vizkid/roar/internal/config"
 	"github.com/vizkid/roar/internal/envelope"
 	"github.com/vizkid/roar/internal/remote"
 )
@@ -71,6 +72,18 @@ func localName() string {
 	return name
 }
 
+// installHost is the Host install uses, with the target host's install.*
+// settings.
+func installHost(env Env, label string) (remote.Host, *config.Settings, error) {
+	s, err := loadSettings(env, label)
+	if err != nil {
+		return remote.Host{}, nil, err
+	}
+	h := remoteHost(env, label)
+	h.Timeout, h.Poll, h.ReadyTimeout = s.Duration("install.deadline"), s.Duration("install.ready_check"), s.Duration("install.ready_timeout")
+	return h, s, nil
+}
+
 // remoteHost is the Host for a server label or endpoint.
 func remoteHost(env Env, server string) remote.Host {
 	c := env.Rex
@@ -126,7 +139,12 @@ func cmdInstall(ctx context.Context, env Env, args []string) error {
 	if err != nil {
 		return err
 	}
-	h := remoteHost(env, pos[0])
+	h, s, err := installHost(env, pos[0])
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(ctx, s.Duration("install.deadline"))
+	defer cancel()
 	if err := h.Install(ctx, bin); err != nil {
 		return err
 	}

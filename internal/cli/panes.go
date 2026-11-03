@@ -31,10 +31,6 @@ type paneRow struct {
 	Note    string `json:"note,omitempty"`
 }
 
-// panesParallel bounds the panes probed at once. Each probe runs about six
-// rex calls, and a busy host has dozens of panes.
-const panesParallel = 8
-
 func cmdPanes(ctx context.Context, env Env, args []string) error {
 	fs := flag.NewFlagSet("panes", flag.ContinueOnError)
 	asJSON := fs.Bool("json", false, "print as JSON")
@@ -99,7 +95,7 @@ func localPanes(ctx context.Context, env Env) ([]paneRow, error) {
 			}
 		}
 	}
-	sem := make(chan struct{}, panesParallel)
+	sem := make(chan struct{}, timings.Int("panes.parallel"))
 	var wg sync.WaitGroup
 	for i := range rows {
 		wg.Add(1)

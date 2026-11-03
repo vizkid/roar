@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/vizkid/rexkit/rex"
+	"github.com/vizkid/roar/internal/config"
 )
 
 var (
@@ -43,7 +44,18 @@ type Host struct {
 	Bin     string     // remote roar path; DefaultBin when empty
 	Env     []string   // extra environment for the remote command
 	Session string     // label of the session for detached blocks; empty picks an existing one
-	Timeout time.Duration
+	// The install.* settings: the whole command, how often to look, and the
+	// wait for a bootstrap's ready marker. Zero uses those keys' defaults.
+	Timeout      time.Duration
+	Poll         time.Duration
+	ReadyTimeout time.Duration
+}
+
+func orDefault(d time.Duration, key string) time.Duration {
+	if d > 0 {
+		return d
+	}
+	return config.DefaultDuration(key)
 }
 
 // roarCommand runs the remote roar with args.
@@ -113,10 +125,7 @@ func (h Host) run(ctx context.Context, command []string, input []byte, wait bool
 }
 
 func (h Host) finish(ctx context.Context, session, block string, cause error) (int, string, error) {
-	timeout := h.Timeout
-	if timeout == 0 {
-		timeout = 2 * time.Minute
-	}
+	timeout := orDefault(h.Timeout, "install.deadline")
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
 		p, err := h.Rex.Process(ctx, session, block)
@@ -127,14 +136,14 @@ func (h Host) finish(ctx context.Context, session, block string, cause error) (i
 		select {
 		case <-ctx.Done():
 			return 0, "", fmt.Errorf("%w: %v", ErrUnknown, ctx.Err())
-		case <-time.After(100 * time.Millisecond):
+		case <-time.After(orDefault(h.Poll, "install.ready_check")):
 		}
 	}
 	return 0, "", fmt.Errorf("%w: no exit after %s", ErrUnknown, timeout)
 }
 
 func (h Host) waitFor(ctx context.Context, session, block, marker string) error {
-	deadline := time.Now().Add(20 * time.Second)
+	deadline := time.Now().Add(orDefault(h.ReadyTimeout, "install.ready_timeout"))
 	for time.Now().Before(deadline) {
 		out, err := h.Rex.Run(ctx, "capture", "-s", session, "-b", block, "--trim", "--unwrap")
 		if err == nil && strings.Contains(string(out), marker) {
@@ -143,7 +152,7 @@ func (h Host) waitFor(ctx context.Context, session, block, marker string) error 
 		if p, err := h.Rex.Process(ctx, session, block); err == nil && p.LastExit != nil {
 			return nil // exited early; finish reports why
 		}
-		time.Sleep(100 * time.Millisecond)
+		time.Sleep(orDefault(h.Poll, "install.ready_check"))
 	}
 	return fmt.Errorf("%w: the remote command never became ready", ErrUnknown)
 }

@@ -9,7 +9,7 @@ import (
 // and a recovered panic hid the race. go test -race shows it.
 func TestPoolStopWhileSubmitting(t *testing.T) {
 	for range 50 {
-		p := newPool(2)
+		p := newPool(2, 64)
 		var wg sync.WaitGroup
 		for range 4 {
 			wg.Go(func() {

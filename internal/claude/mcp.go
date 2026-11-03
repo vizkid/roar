@@ -15,7 +15,6 @@ import (
 // Config is everything the adapter needs. Tests replace the functions.
 type Config struct {
 	Store     *store.Store
-	Session   string
 	Block     string
 	ParentPID int
 	// ParentArgs reads a process's argv (the guard reads Claude's).
@@ -61,14 +60,19 @@ func Serve(ctx context.Context, cfg Config, in io.Reader, out io.Writer) error {
 	}
 	w := &writer{out: out}
 	var lock *store.AdapterLock
+	ctx, cancel := context.WithCancel(ctx)
+	// The deliverer writes to the store under the adapter lock, so the lock
+	// is released only once the deliverer has stopped.
+	var delivering sync.WaitGroup
 	defer func() {
+		cancel()
+		delivering.Wait()
 		if lock != nil {
 			lock.Release()
 		}
 	}()
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
 
+	started := false
 	sc := bufio.NewScanner(in)
 	sc.Buffer(make([]byte, 64<<10), 8<<20)
 	for sc.Scan() {
@@ -95,8 +99,9 @@ func Serve(ctx context.Context, cfg Config, in io.Reader, out io.Writer) error {
 			}
 			w.reply(req.ID, initializeResult(ok))
 		case "notifications/initialized":
-			if lock != nil {
-				go newDeliverer(cfg, w).run(ctx)
+			if lock != nil && !started {
+				started = true // a repeated notification must not start a second deliverer
+				delivering.Go(func() { newDeliverer(cfg, w).run(ctx) })
 			}
 		case "tools/list":
 			w.reply(req.ID, map[string]any{"tools": []any{}})

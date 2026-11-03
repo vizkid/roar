@@ -13,6 +13,10 @@ import (
 	"github.com/vizkid/roar/internal/store"
 )
 
+// DefaultLabel is roard's Rex client label when Deps.Label is empty, and
+// the label senders look for.
+const DefaultLabel = "roard"
+
 // Protocol is the roar.* action protocol version that roar.hello reports.
 const Protocol = 1
 

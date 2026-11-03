@@ -27,8 +27,6 @@ type Env struct {
 	Getenv func(string) string
 	Now    func() time.Time
 	Rex    rex.Client
-	// Self is this roar binary, which a watcher runs. Empty starts no watcher.
-	Self string
 }
 
 // Exit codes shared by every command.
@@ -118,10 +116,11 @@ func Main(args []string, env Env) int {
 }
 
 // commandContext bounds a command at two minutes. A service runs until the
-// service manager stops it, so it gets no deadline, only SIGINT and SIGTERM;
-// unlike watchContext, its caller can still cancel it.
+// service manager stops it, and install bounds itself by install.deadline,
+// so they get no deadline, only SIGINT and SIGTERM; unlike watchContext,
+// the caller can still cancel them.
 func commandContext(name string) (context.Context, context.CancelFunc) {
-	if name == "daemon" {
+	if name == "daemon" || name == "install" {
 		return signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	}
 	return context.WithTimeout(context.Background(), 2*time.Minute)
@@ -141,7 +140,15 @@ func openStore(env Env) (*store.Store, error) {
 			return nil, err
 		}
 	}
-	return store.Open(root)
+	st, err := store.Open(root)
+	if err != nil {
+		return nil, err
+	}
+	s := timings
+	st.Limits = store.Limits{PerRecipient: s.Size("store.unread_per_recipient"), PerHost: s.Size("store.unread_per_host"),
+		FilesPerHost: s.Size("store.files_per_host"), Messages: s.Int("store.unread_messages")}
+	st.Retention = s.Duration("store.retention")
+	return st, nil
 }
 
 func defaultRoot(env Env) (string, error) {

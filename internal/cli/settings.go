@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/vizkid/rexkit/rex"
 	"github.com/vizkid/roar/internal/agy"
 	"github.com/vizkid/roar/internal/claude"
 	"github.com/vizkid/roar/internal/codex"
@@ -36,7 +37,7 @@ type rexHost struct {
 	Endpoints []string
 }
 
-func rexHosts(ctx context.Context, env Env) []rexHost {
+func rexHosts(ctx context.Context, c rex.Client) []rexHost {
 	var out struct {
 		Hosts []struct {
 			Host struct {
@@ -45,7 +46,7 @@ func rexHosts(ctx context.Context, env Env) []rexHost {
 			} `json:"host"`
 		} `json:"hosts"`
 	}
-	if env.Rex.JSON(ctx, &out, "hosts", "--json") != nil {
+	if c.JSON(ctx, &out, "hosts", "--json") != nil {
 		return nil
 	}
 	hosts := make([]rexHost, 0, len(out.Hosts))
@@ -58,7 +59,7 @@ func rexHosts(ctx context.Context, env Env) []rexHost {
 // resolveServer turns a host label or endpoint into an endpoint URL and the
 // host label that settings use for it.
 func resolveServer(ctx context.Context, env Env, server string) (endpoint, label string, err error) {
-	hosts := rexHosts(ctx, env)
+	hosts := rexHosts(ctx, env.Rex)
 	if strings.Contains(server, "://") {
 		for _, h := range hosts {
 			for _, ep := range h.Endpoints {

@@ -45,7 +45,7 @@ func hold(t *testing.T, st *store.Store, id, reason string) {
 // Only a hold that no event reports arms the re-check.
 func TestGapTimerOnlyWhenNeeded(t *testing.T) {
 	h := newHarness(t, "")
-	w := newWatcher(context.Background(), h.deps, newSubs(nil), newPool(1))
+	w := newWatcher(context.Background(), h.deps, newSubs(nil), newPool(1, 64))
 	defer w.stop()
 	if w.gapArmed() {
 		t.Fatal("armed with no work")
@@ -96,7 +96,7 @@ func TestEventDuringAttemptRunsAgain(t *testing.T) {
 			<-release // the first attempt is still reading the agent
 		}
 	}
-	w := newWatcher(context.Background(), h.deps, newSubs(nil), newPool(2))
+	w := newWatcher(context.Background(), h.deps, newSubs(nil), newPool(2, 64))
 	defer w.stop()
 	w.haveLock(true)
 	e := h.envelope("raced")
@@ -137,7 +137,7 @@ func TestRelayChecksOnWrappedClose(t *testing.T) {
 // A pane that closes with a held message gets an attempt, which expires it.
 func TestBlockClosedSchedulesAttempt(t *testing.T) {
 	h := newHarness(t, "watcher.coalesce=10ms")
-	w := newWatcher(context.Background(), h.deps, newSubs(nil), newPool(1))
+	w := newWatcher(context.Background(), h.deps, newSubs(nil), newPool(1, 64))
 	defer w.stop()
 	w.haveLock(true)
 	e := h.envelope("closing")
@@ -156,7 +156,7 @@ func TestBlockClosedSchedulesAttempt(t *testing.T) {
 // cost nothing.
 func TestRexEventRouting(t *testing.T) {
 	h := newHarness(t, "watcher.coalesce=10ms")
-	w := newWatcher(context.Background(), h.deps, newSubs(nil), newPool(1))
+	w := newWatcher(context.Background(), h.deps, newSubs(nil), newPool(1, 64))
 	defer w.stop()
 	w.haveLock(true)
 	e := h.envelope("wake")
@@ -184,7 +184,7 @@ func TestRexEventRouting(t *testing.T) {
 // flag cannot strand a message.
 func TestSweepRecoversMissedWake(t *testing.T) {
 	h := newHarness(t, "watcher.sweep=50ms,watcher.coalesce=1ms")
-	p := newPool(1)
+	p := newPool(1, 64)
 	defer p.stop()
 	w := newWatcher(context.Background(), h.deps, newSubs(nil), p)
 	defer w.stop()
@@ -208,7 +208,7 @@ func TestSweepRecoversMissedWake(t *testing.T) {
 // The sweep is a timer only while something is queued.
 func TestSweepOnlyWhileQueued(t *testing.T) {
 	h := newHarness(t, "watcher.sweep=20ms")
-	p := newPool(1)
+	p := newPool(1, 64)
 	defer p.stop()
 	w := newWatcher(context.Background(), h.deps, newSubs(nil), p)
 	defer w.stop()

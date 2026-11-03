@@ -33,7 +33,7 @@ func cmdMCP(ctx context.Context, env Env, _ []string) error {
 		block = "none"
 	}
 	cfg := claude.Config{
-		Store: st, Session: session, Block: block, ParentPID: ppid,
+		Store: st, Block: block, ParentPID: ppid,
 		ParentArgs: parentArgs,
 		Transcript: func() (string, error) { return claude.TranscriptPath(configDir, ppid) },
 		AgentStatus: func(ctx context.Context) (claude.Status, error) {

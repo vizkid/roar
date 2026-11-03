@@ -8,11 +8,11 @@ import (
 	"time"
 )
 
-// Retention is how long a finished message stays, so a late reply can still
-// find its original.
-const Retention = 7 * 24 * time.Hour
+// DefaultRetention is how long a finished message stays, so a late reply
+// can still find its original: store.retention's default.
+const DefaultRetention = 7 * 24 * time.Hour
 
-// Prune removes finished messages older than Retention, and their sent
+// Prune removes finished messages older than s.Retention, and their sent
 // records. Unread messages are never pruned.
 func (s *Store) Prune(now time.Time) error {
 	all, err := s.All()
@@ -20,7 +20,7 @@ func (s *Store) Prune(now time.Time) error {
 		return err
 	}
 	for _, m := range all {
-		if !m.Record.State.Final() || now.Sub(m.Record.UpdatedAt) < Retention {
+		if !m.Record.State.Final() || now.Sub(m.Record.UpdatedAt) < s.Retention {
 			continue
 		}
 		c, err := s.Claim(m.Envelope.ID)
@@ -40,7 +40,7 @@ func (s *Store) Prune(now time.Time) error {
 	}
 	sent, _ := filepath.Glob(filepath.Join(s.root, "sent", "rm-*.json"))
 	for _, f := range sent {
-		if info, err := os.Stat(f); err == nil && now.Sub(info.ModTime()) > Retention {
+		if info, err := os.Stat(f); err == nil && now.Sub(info.ModTime()) > s.Retention {
 			os.Remove(f)
 		}
 	}

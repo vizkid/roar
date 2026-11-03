@@ -16,12 +16,10 @@ type pool struct {
 	closed bool
 }
 
-// poolQueue bounds queued work. A full queue refuses new work instead of
-// blocking a handler.
-const poolQueue = 1024
-
-func newPool(workers int) *pool {
-	p := &pool{ch: make(chan func(), poolQueue)}
+// newPool starts workers. queue bounds the work waiting for them: a full
+// queue refuses new work instead of blocking a handler.
+func newPool(workers, queue int) *pool {
+	p := &pool{ch: make(chan func(), max(queue, 1))}
 	for range max(workers, 1) {
 		p.wg.Go(func() {
 			for f := range p.ch {

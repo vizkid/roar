@@ -32,8 +32,9 @@ var DefaultLimits = Limits{PerRecipient: 2 << 20, PerHost: 16 << 20, FilesPerHos
 
 // Store is one host's message directory.
 type Store struct {
-	root   string
-	Limits Limits
+	root      string
+	Limits    Limits
+	Retention time.Duration
 }
 
 // Message is an envelope with its current record.
@@ -68,7 +69,7 @@ func Open(root string) (*Store, error) {
 	if err := os.Chmod(root, 0o700); err != nil {
 		return nil, err
 	}
-	return &Store{root: root, Limits: DefaultLimits}, nil
+	return &Store{root: root, Limits: DefaultLimits, Retention: DefaultRetention}, nil
 }
 
 // Root is the store directory.

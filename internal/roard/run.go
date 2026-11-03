@@ -13,7 +13,7 @@ import (
 // and otherwise runs until ctx ends.
 func Run(ctx context.Context, d Deps) error {
 	if d.Label == "" {
-		d.Label = "roard"
+		d.Label = DefaultLabel
 	}
 	lock, err := d.Store.HoldDaemon()
 	if errors.Is(err, store.ErrBusy) {
@@ -29,7 +29,7 @@ func Run(ctx context.Context, d Deps) error {
 	runCtx := ctx
 
 	s := d.Settings()
-	p := newPool(s.Int("roard.workers"))
+	p := newPool(s.Int("roard.workers"), s.Int("roard.queue"))
 	defer p.stop()
 	cb := newCallbacks(ctx, d)
 	sb := newSubs(cb)
@@ -63,7 +63,7 @@ func Run(ctx context.Context, d Deps) error {
 			OnPerform: srv.perform,
 		},
 		Backoff:     s.Backoff("roard.rex.reconnect"),
-		DialTimeout: 10 * time.Second,
+		DialTimeout: s.Duration("roard.rex.connect_timeout"),
 		Setup: func(ctx context.Context, c *rexctl.Client) error {
 			if err := c.Declare(ctx, d.Label, actions); err != nil {
 				return err

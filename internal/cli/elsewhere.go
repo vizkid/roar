@@ -7,14 +7,9 @@ import (
 	"slices"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/vizkid/rexkit/rex"
 )
-
-// elsewhereWait bounds the search of other hosts. It runs only after a send
-// has already failed, so it costs nothing on the normal path.
-const elsewhereWait = 5 * time.Second
 
 // otherHosts lists the labels of the Rex hosts this Rex knows, replaced in
 // tests.
@@ -38,7 +33,7 @@ func elsewhere(ctx context.Context, c rex.Client, target string, miss error) err
 	if len(hosts) == 0 {
 		return miss
 	}
-	ctx, cancel := context.WithTimeout(ctx, elsewhereWait)
+	ctx, cancel := context.WithTimeout(ctx, timings.Duration("target.elsewhere_timeout")) // only after a miss
 	defer cancel()
 	found := make([]string, len(hosts))
 	var wg sync.WaitGroup
@@ -63,20 +58,10 @@ func elsewhere(ctx context.Context, c rex.Client, target string, miss error) err
 
 // hostLabels is the label of every host in `rex hosts`, without this one.
 func hostLabels(ctx context.Context, c rex.Client) []string {
-	var out struct {
-		Hosts []struct {
-			Host struct {
-				Label string `json:"label"`
-			} `json:"host"`
-		} `json:"hosts"`
-	}
-	if c.JSON(ctx, &out, "hosts", "--json") != nil {
-		return nil
-	}
 	var labels []string
-	for _, h := range out.Hosts {
-		if h.Host.Label != "" {
-			labels = append(labels, h.Host.Label)
+	for _, h := range rexHosts(ctx, c) {
+		if h.Label != "" {
+			labels = append(labels, h.Label)
 		}
 	}
 	return labels

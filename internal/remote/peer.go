@@ -77,7 +77,7 @@ type link struct {
 
 func (p *Peer) label() string {
 	if p.Label == "" {
-		return "roard"
+		return roard.DefaultLabel
 	}
 	return p.Label
 }
@@ -88,7 +88,7 @@ func (p *Peer) dial(ctx context.Context) (*link, error) {
 	if p.rtt.Alpha == 0 {
 		p.rtt.Alpha = s.Float("sender.call.rtt_alpha")
 	}
-	results := make(chan roard.Result, 256)
+	results := make(chan roard.Result, max(s.Int("sender.result_buffer"), 1))
 	// Opening takes two round trips: the WebSocket handshake, then hello and
 	// welcome. The deadline follows the last known round trip, so a 20 s
 	// link gets time to open, and the open itself gives the first sample.

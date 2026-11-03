@@ -66,7 +66,7 @@ func (d *Deliverer) All(ctx context.Context) ([]Outcome, error) {
 		return nil, err
 	}
 	d.Store.PruneAgy()
-	blocks, err := d.queuedBlocks()
+	blocks, err := d.Store.QueuedBlocks()
 	if err != nil {
 		return nil, err
 	}
@@ -83,14 +83,10 @@ func (d *Deliverer) All(ctx context.Context) ([]Outcome, error) {
 	return outs, nil
 }
 
-func (d *Deliverer) queuedBlocks() (map[string]bool, error) {
-	return d.Store.QueuedBlocks()
-}
-
 // NeedsWatcher reports whether a queued message waits for a pane that no
 // native adapter serves. Only the watcher would retry such a message.
 func (d *Deliverer) NeedsWatcher() (bool, error) {
-	blocks, err := d.queuedBlocks()
+	blocks, err := d.Store.QueuedBlocks()
 	if err != nil {
 		return false, err
 	}
@@ -149,7 +145,7 @@ func (d *Deliverer) Watch(ctx context.Context, untilIdle bool) error {
 				if !triggers[ev.Name] {
 					continue // skips the idle check: most events are not ours
 				}
-				if blocks, err := d.queuedBlocks(); err == nil && blocks[ev.Block] {
+				if blocks, err := d.Store.QueuedBlocks(); err == nil && blocks[ev.Block] {
 					d.Block(ctx, ev.Block)
 				}
 			}

@@ -105,15 +105,13 @@ func cmdSend(ctx context.Context, env Env, args []string) error {
 	return printResult(env, e.ID, string(m.Record.State), m.Record.HoldReason, *asJSON)
 }
 
-// settleFor bounds how long send waits for a native adapter's outcome.
-// Codex and Claude settle in about a second; waiting here saves the sending
-// agent a whole roar status turn.
-const settleFor = 3 * time.Second
-
 // settle waits while the message is in flight: claimed by an adapter, or
 // queued for one (no hold reason yet, or the fallback's native_adapter).
 func settle(ctx context.Context, st *store.Store, id string) (store.Message, error) {
-	deadline := time.Now().Add(settleFor)
+	// sender.settle bounds the wait for a native adapter's outcome. Codex
+	// and Claude settle in about a second; waiting here saves the sending
+	// agent a whole roar status turn.
+	deadline := time.Now().Add(timings.Duration("sender.settle"))
 	for {
 		m, err := st.Get(id)
 		if err != nil {
@@ -128,7 +126,7 @@ func settle(ctx context.Context, st *store.Store, id string) (store.Message, err
 		select {
 		case <-ctx.Done():
 			return m, nil
-		case <-time.After(100 * time.Millisecond):
+		case <-time.After(timings.Duration("sender.settle_poll")):
 		}
 	}
 }

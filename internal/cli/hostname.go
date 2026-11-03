@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"net"
 	"strings"
-	"time"
 
 	"github.com/vizkid/rexkit/rex"
 )
@@ -34,7 +33,7 @@ func tailnetHost(ctx context.Context, c rex.Client, label string) string {
 	if name == "" {
 		return ""
 	}
-	lctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	lctx, cancel := context.WithTimeout(ctx, timings.Duration("target.dns_timeout"))
 	defer cancel()
 	if lookupHost(lctx, name) != nil {
 		return ""

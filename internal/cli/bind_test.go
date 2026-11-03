@@ -31,7 +31,7 @@ func (h *harness) runAgy(p pane, args ...string) (code int, stdout, stderr strin
 	code = Main(args, Env{
 		Stdin: strings.NewReader(""), Stdout: &out, Stderr: &errb,
 		Getenv: func(k string) string { return vars[k] },
-		Now:    time.Now, Rex: h.rex, Self: h.self,
+		Now:    time.Now, Rex: h.rex,
 	})
 	return code, out.String(), errb.String()
 }

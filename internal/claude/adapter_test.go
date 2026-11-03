@@ -44,7 +44,7 @@ func startAdapter(t *testing.T, st *store.Store, argv []string, writer string) *
 	ctx, cancel := context.WithCancel(context.Background())
 	f.cancel = cancel
 	cfg := Config{
-		Store: st, Session: "session:s", Block: block, ParentPID: 1,
+		Store: st, Block: block, ParentPID: 1,
 		ParentArgs: func(int) ([]string, error) { return argv, nil },
 		Transcript: func() (string, error) { return f.transcript, nil },
 		AgentStatus: func(context.Context) (Status, error) {

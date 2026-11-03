@@ -197,6 +197,17 @@ Every timer that remains, and the ones this design removes. Inherited timers in 
 | Stalled connection | Kept | `sender.stall_timeout` | Detects a link that stays open but carries nothing |
 | `RestartSec=2` under systemd | Kept | `roard.service.restart_delay` | Crash throttling by the service manager |
 | Sender's 15 s print deadline | Kept | `sender.print_deadline` | How long the command waits before it prints the latest state |
+| `sender.result_buffer` | 256 | 256 | S | `roar.result` calls held for one send. Beyond this a call is dropped, and the sender's resubscribe reads the store |
+| `sender.settle` | 3s | 3s | S | How long a local send waits for a native adapter's outcome |
+| `sender.settle_poll` | 100ms | 100ms | S | How often a local send reads that outcome |
+| `target.elsewhere_timeout` | 5s | 20s | S | After a target misses here, how long to look for it on other hosts |
+| `target.dns_timeout` | 2s | 10s | S | Lookup of an unstored host by its tailnet name |
+| `panes.parallel` | 8 | 8 | S | Panes `roar panes` probes at once; each probe is about six Rex calls |
+| `store.retention` | 168h | 168h | S, D | How long a finished message stays, so a late reply finds its original |
+| `store.unread_per_recipient` | 2MiB | 2MiB | S, D | Unread body bytes one pane may hold |
+| `store.unread_per_host` | 16MiB | 16MiB | S, D | Unread body bytes the host may hold |
+| `store.files_per_host` | 256MiB | 256MiB | S, D | Unread attachment bytes the host may hold |
+| `store.unread_messages` | 1000 | 1000 | S, D | Unread messages the host may hold |
 | Sender's 2 min transfer deadline, extended by progress | Kept | `sender.transfer.*` | No event proves that a lost peer will answer |
 | Rex ping and pong, 120 s and 60 s | Kept, Rex's own | none; Rex sets them | Detects a broken transport |
 | `watch.lock` retry every 5 s | Only while an old watcher holds it | `watcher.legacy_lock_retry` | flock release has no event |
@@ -291,6 +302,7 @@ Who reads each key: **S** is the sender, **D** is roard, **C** is any command.
 | `roard.rex.reconnect.max` | 30s | 30s | D | |
 | `roard.rex.reconnect.jitter` | 0.2 | 0.2 | D | |
 | `roard.rex.reconnect.reset_after` | 60s | 60s | D | |
+| `roard.rex.connect_timeout` | 10s | 30s | D | One connection attempt to the local Rex server |
 | `roard.callback.timeout` | 10s | 30s | D | Floor of each `roar.result` call's deadline |
 | `roard.callback.rtt_factor` | 8 | 12 | D | The same rule, with roard's own `srtt` per sender |
 | `roard.callback.initial` | 250ms | 1s | D | Backoff when a callback fails, such as `client_unavailable` |
@@ -300,8 +312,10 @@ Who reads each key: **S** is the sender, **D** is roard, **C** is any command.
 | `roard.callback.give_up` | 2m | 10m | D | Stop calling back. The sender's resubscribe still finds the record. |
 | `roard.callback.max_timeout` | 30s | 30s | D | Cap on a sender's `callback_timeout` hint |
 | `roard.callback.max_give_up` | 15m | 30m | D | Cap on a sender's `callback_give_up` hint |
+| `roard.callback.idle` | 5m | 5m | D | A sender's callback queue ends after it has been empty this long; `client_left` ends it at once |
+| `roard.callback.max_queued` | 1024 | 1024 | D | Results queued per sender. Updates for one message merge; beyond this the oldest is dropped and logged |
 | `roard.workers` | 4 | 4 | D | Worker count. Needs a restart. |
-| `roard.upload.max_workers` | 2 | 2 | D | Workers one upload may hold |
+| `roard.queue` | 1024 | 1024 | D | Jobs that may wait for a worker; more are refused as `roard_busy`. Needs a restart. |
 | `roard.upload.max_count` | 8 | 8 | D | Open uploads per host |
 | `roard.upload.max_bytes` | 64MiB | 64MiB | D | Bytes reserved by open uploads per host |
 | `roard.upload.idle_expiry` | 10m | 1h | D | Delete an upload with no part for this long |

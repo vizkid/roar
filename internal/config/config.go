@@ -166,10 +166,21 @@ func (s *Settings) get(name string) any {
 }
 
 func (s *Settings) Duration(name string) time.Duration { return s.get(name).(time.Duration) }
-func (s *Settings) Size(name string) int64             { return s.get(name).(int64) }
-func (s *Settings) Float(name string) float64          { return s.get(name).(float64) }
-func (s *Settings) Int(name string) int                { return s.get(name).(int) }
-func (s *Settings) Bool(name string) bool              { return s.get(name).(bool) }
+
+// DefaultDuration is a duration key's built-in default, for code that runs
+// without loaded settings. It panics on a key that is not a duration.
+func DefaultDuration(name string) time.Duration {
+	k := byName[name]
+	v, err := parse(k, k.Default)
+	if err != nil {
+		panic("config: " + name + ": " + err.Error())
+	}
+	return v.(time.Duration)
+}
+func (s *Settings) Size(name string) int64    { return s.get(name).(int64) }
+func (s *Settings) Float(name string) float64 { return s.get(name).(float64) }
+func (s *Settings) Int(name string) int       { return s.get(name).(int) }
+func (s *Settings) Bool(name string) bool     { return s.get(name).(bool) }
 
 // Value is a key's effective value as Roar writes it.
 func (s *Settings) Value(name string) string {
