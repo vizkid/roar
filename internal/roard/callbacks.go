@@ -21,41 +21,82 @@ type callbacks struct {
 	q    map[string]*senderQueue
 }
 
+// senderQueue is one sender's results and their consumer. Its context ends
+// when the sender leaves, so its retries stop with it.
 type senderQueue struct {
 	queue[Result]
-	hints Hints
-	rtt   config.RTT
+	hints  Hints
+	rtt    config.RTT
+	ctx    context.Context
+	cancel context.CancelFunc
+	done   chan struct{} // closed when the consumer returns
 }
 
 func newCallbacks(ctx context.Context, d Deps) *callbacks {
 	return &callbacks{ctx: ctx, d: d, q: map[string]*senderQueue{}}
 }
 
+// send queues r for client. It adds under c.mu, so a consumer that ends
+// for being idle cannot miss a result added at the same moment.
 func (c *callbacks) send(client string, r Result, h Hints) {
+	s := c.d.Settings()
 	c.mu.Lock()
+	defer c.mu.Unlock()
 	sq := c.q[client]
 	if sq == nil {
-		s := c.d.Settings()
-		sq = &senderQueue{queue: newQueue[Result](), rtt: config.RTT{Alpha: s.Float("sender.call.rtt_alpha")}}
+		ctx, cancel := context.WithCancel(c.ctx)
+		sq = &senderQueue{queue: newQueue[Result](), rtt: config.RTT{Alpha: s.Float("sender.call.rtt_alpha")},
+			ctx: ctx, cancel: cancel, done: make(chan struct{})}
 		c.q[client] = sq
 		go c.run(client, sq)
 	}
 	if h != (Hints{}) {
 		sq.hints = h
 	}
-	c.mu.Unlock()
-	sq.push(r)
+	if sq.add(r, s.Int("roard.callback.max_queued")) {
+		c.d.logf("callback queue for %s is full; dropped its oldest result", client)
+	}
 }
 
+// drop ends a departed sender's queue and its retries.
+func (c *callbacks) drop(client string) {
+	c.mu.Lock()
+	sq := c.q[client]
+	delete(c.q, client)
+	c.mu.Unlock()
+	if sq != nil {
+		sq.cancel()
+	}
+}
+
+// run delivers client's results in order. It ends when the sender leaves,
+// when a callback finds it gone, when roard stops, or after the queue has
+// been empty for roard.callback.idle: a client_left that came while roard
+// was disconnected is never seen.
 func (c *callbacks) run(client string, sq *senderQueue) {
+	defer close(sq.done)
+	defer sq.cancel()
+	idle := c.d.Settings().Duration("roard.callback.idle")
 	for {
-		r, ok := sq.pop(c.ctx)
+		r, ok := sq.pop(sq.ctx, idle)
 		if !ok {
-			return
+			if sq.ctx.Err() != nil {
+				return
+			}
+			c.mu.Lock()
+			if sq.size() == 0 && c.q[client] == sq {
+				delete(c.q, client)
+				c.mu.Unlock()
+				return
+			}
+			c.mu.Unlock()
+			continue
 		}
 		if !c.deliver(client, sq, r) {
 			c.mu.Lock()
-			delete(c.q, client)
+			if c.q[client] == sq {
+				delete(c.q, client)
+			}
 			c.mu.Unlock()
 			return // the sender left; its resubscribe will read the store
 		}
@@ -84,11 +125,11 @@ func (c *callbacks) deliver(client string, sq *senderQueue, r Result) bool {
 		if sess == nil {
 			return true
 		}
-		cl, err := sess.Client(c.ctx)
+		cl, err := sess.Client(sq.ctx)
 		if err != nil {
-			return true // roard is stopping
+			return true // roard is stopping, or the sender left
 		}
-		ctx, cancel := context.WithTimeout(c.ctx, dl.For(sq.rtt.SRTT()))
+		ctx, cancel := context.WithTimeout(sq.ctx, dl.For(sq.rtt.SRTT()))
 		t0 := time.Now()
 		err = cl.Perform(ctx, client, "roar.result", r, min(dl.Timeout, 30*time.Second), nil)
 		cancel()
@@ -99,7 +140,7 @@ func (c *callbacks) deliver(client string, sq *senderQueue, r Result) bool {
 		if rexctl.Code(err) == "not_found" {
 			return false
 		}
-		if c.ctx.Err() != nil {
+		if sq.ctx.Err() != nil {
 			return true
 		}
 		if time.Since(start) >= giveUp {
@@ -109,47 +150,9 @@ func (c *callbacks) deliver(client string, sq *senderQueue, r Result) bool {
 		t := time.NewTimer(retry.Fail(time.Now()))
 		select {
 		case <-t.C:
-		case <-c.ctx.Done():
+		case <-sq.ctx.Done():
 			t.Stop()
 			return true
-		}
-	}
-}
-
-// queue is a FIFO a single consumer waits on.
-type queue[T any] struct {
-	mu     sync.Mutex
-	items  []T
-	signal chan struct{}
-}
-
-func newQueue[T any]() queue[T] { return queue[T]{signal: make(chan struct{}, 1)} }
-
-func (q *queue[T]) push(v T) {
-	q.mu.Lock()
-	q.items = append(q.items, v)
-	q.mu.Unlock()
-	select {
-	case q.signal <- struct{}{}:
-	default:
-	}
-}
-
-func (q *queue[T]) pop(ctx context.Context) (T, bool) {
-	for {
-		q.mu.Lock()
-		if len(q.items) > 0 {
-			v := q.items[0]
-			q.items = q.items[1:]
-			q.mu.Unlock()
-			return v, true
-		}
-		q.mu.Unlock()
-		select {
-		case <-q.signal:
-		case <-ctx.Done():
-			var zero T
-			return zero, false
 		}
 	}
 }

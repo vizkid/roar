@@ -82,6 +82,8 @@ var keys = []Key{
 	{Name: "roard.callback.give_up", Kind: KindDuration, Default: "2m", Slow: "10m", Doc: "Stop calling back; the sender's resubscribe still finds the record"},
 	{Name: "roard.callback.max_timeout", Kind: KindDuration, Default: "30s", Doc: "Cap on a sender's callback_timeout hint"},
 	{Name: "roard.callback.max_give_up", Kind: KindDuration, Default: "15m", Slow: "30m", Doc: "Cap on a sender's callback_give_up hint"},
+	{Name: "roard.callback.idle", Kind: KindDuration, Default: "5m", Doc: "End a sender's callback queue after it has been empty this long"},
+	{Name: "roard.callback.max_queued", Kind: KindInt, Default: "1024", Doc: "Results queued per sender; the oldest is dropped beyond this"},
 	{Name: "roard.workers", Kind: KindInt, Default: "4", Restart: true, Doc: "Worker count"},
 	{Name: "roard.upload.max_workers", Kind: KindInt, Default: "2", Doc: "Workers one upload may hold"},
 	{Name: "roard.upload.max_count", Kind: KindInt, Default: "8", Doc: "Open uploads per host"},

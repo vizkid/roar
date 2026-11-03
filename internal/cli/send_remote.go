@@ -7,7 +7,9 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 
 	"github.com/vizkid/rexkit/rex"
 	"github.com/vizkid/roar/internal/envelope"
@@ -88,7 +90,11 @@ func sendRemote(ctx context.Context, env Env, e envelope.Envelope, files map[str
 	if err != nil {
 		return remote.Result{}, err
 	}
-	row, err := p.Send(context.WithoutCancel(ctx), e, files)
+	// The send's own budget replaces the two-minute command deadline, which
+	// a slow link can need more than. Ctrl-C and SIGTERM still end it.
+	sctx, stop := signal.NotifyContext(context.WithoutCancel(ctx), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	row, err := p.Send(sctx, e, files)
 	saveRTT(env, p)
 	if errors.Is(err, remote.ErrNoRoard) {
 		return remote.Result{}, fmt.Errorf("roard_not_running: no roard answers on %s; roar install sets it up", server)

@@ -2,9 +2,9 @@ package remote
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"sync"
 	"time"
 
 	"github.com/vizkid/rexkit/rexctl"
@@ -20,8 +20,54 @@ type sendState struct {
 	files     map[string][]byte
 	committed bool // an enqueue or commit was sent, so the message may exist
 	last      roard.Row
-	deadline  time.Time
 	landed    int64 // attachment bytes roard reported committed, for progress
+
+	mu       sync.Mutex // deadline is read by budget's timer while parts move it
+	deadline time.Time
+}
+
+// until is the time the send must finish by, as progress has moved it.
+func (st *sendState) until() time.Time {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	return st.deadline
+}
+
+// extend moves the deadline to at least d from now: a moving upload never
+// runs out of time.
+func (st *sendState) extend(d time.Duration) {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	if t := time.Now().Add(d); t.After(st.deadline) {
+		st.deadline = t
+	}
+}
+
+// ErrBudget is a send that ran past its transfer budget: sender.transfer.base
+// plus the time its size takes at sender.transfer.min_rate.
+var ErrBudget = errors.New("transfer_budget: the send ran past its time budget (sender.transfer.base, sender.transfer.min_rate)")
+
+// budget is ctx ending once st's deadline passes. Each dial and call of a
+// try runs under it, so one stalled step cannot outlast the whole send. The
+// deadline moves while an upload makes progress, so the timer re-reads it.
+func budget(ctx context.Context, st *sendState) (context.Context, context.CancelFunc) {
+	bctx, cancel := context.WithCancelCause(ctx)
+	go func() {
+		for {
+			t := time.NewTimer(time.Until(st.until()))
+			select {
+			case <-t.C:
+				if !time.Now().Before(st.until()) {
+					cancel(ErrBudget)
+					return
+				}
+			case <-bctx.Done():
+				t.Stop()
+				return
+			}
+		}
+	}()
+	return bctx, func() { cancel(nil) }
 }
 
 // Send hands e to roard and returns the first settled record, or the latest
@@ -47,7 +93,10 @@ func (p *Peer) Send(ctx context.Context, e envelope.Envelope, files map[string][
 			return roard.Row{}, refusal(err)
 		}
 		wait := retry.Fail(time.Now())
-		if ctx.Err() != nil || time.Now().Add(wait).After(st.deadline) {
+		if errors.Is(err, context.Canceled) && ctx.Err() == nil {
+			err = ErrBudget // the try's budget context ended, not the caller's
+		}
+		if ctx.Err() != nil || time.Now().Add(wait).After(st.until()) {
 			if st.committed {
 				return st.last, errors.Join(ErrUnknown, err)
 			}
@@ -62,8 +111,17 @@ func (p *Peer) Send(ctx context.Context, e envelope.Envelope, files map[string][
 	}
 }
 
+// sendOnce is one try. Dialing and handing over run under the send's
+// budget; waiting for the result runs under print_deadline instead, since
+// the message may already be in roard's hands.
 func (p *Peer) sendOnce(ctx context.Context, st *sendState) (roard.Row, error) {
-	l, err := p.dial(ctx)
+	bctx, cancel := budget(ctx, st)
+	defer cancel()
+	// The WebSocket handshake and Rex's hello honour a deadline but not a
+	// cancel, so the dial also gets the budget's current end as a deadline.
+	dctx, dcancel := context.WithDeadline(bctx, st.until())
+	l, err := p.dial(dctx)
+	dcancel()
 	if err != nil {
 		return roard.Row{}, err
 	}
@@ -72,7 +130,7 @@ func (p *Peer) sendOnce(ctx context.Context, st *sendState) (roard.Row, error) {
 	var sub struct {
 		Rows []roard.Row `json:"rows"`
 	}
-	if err := p.call(ctx, l, "roar.subscribe", map[string]any{"ids": []string{id}, "hints": p.hints()}, &sub); err != nil {
+	if err := p.call(bctx, l, "roar.subscribe", map[string]any{"ids": []string{id}, "hints": p.hints()}, &sub); err != nil {
 		return roard.Row{}, err
 	}
 	if len(sub.Rows) == 1 && sub.Rows[0].State != "missing" {
@@ -80,114 +138,10 @@ func (p *Peer) sendOnce(ctx context.Context, st *sendState) (roard.Row, error) {
 		if settled(st.last) {
 			return st.last, nil
 		}
-	} else if err := p.handOver(ctx, l, st); err != nil {
+	} else if err := p.handOver(bctx, l, st); err != nil {
 		return roard.Row{}, err
 	}
 	return p.await(ctx, l, st)
-}
-
-// handOver enqueues inline when everything fits one part, else uploads.
-func (p *Peer) handOver(ctx context.Context, l *link, st *sendState) error {
-	args := map[string]any{"envelope": string(st.raw), "sha256": digest(st.raw)}
-	if int64(len(st.raw))+encodedSize(st.files)+4096 <= int64(l.maxPart) {
-		inline := map[string]string{}
-		for name, b := range st.files {
-			inline[name] = base64.StdEncoding.EncodeToString(b)
-		}
-		args["files"] = inline
-		st.committed = true
-		return p.call(ctx, l, "roar.enqueue", args, nil)
-	}
-	if err := p.upload(ctx, l, st, args); err != nil {
-		return err
-	}
-	st.committed = true
-	return p.call(ctx, l, "roar.upload.commit", map[string]any{"upload": "up-" + st.e.ID}, nil)
-}
-
-// upload sends each file from its committed offset, keeping in_flight
-// parts outstanding. They go out in order on one connection, and Rex hands
-// them to roard in that order, so each lands at the offset it names.
-func (p *Peer) upload(ctx context.Context, l *link, st *sendState, begin map[string]any) error {
-	var b struct {
-		Upload    string           `json:"upload"`
-		Committed map[string]int64 `json:"committed"`
-	}
-	if err := p.call(ctx, l, "roar.upload.begin", begin, &b); err != nil {
-		return err
-	}
-	s := p.Settings
-	// Parts can land while their replies are lost to a drop. begin shows
-	// them, and that progress extends the deadline like an acknowledgement.
-	var landed int64
-	for _, c := range b.Committed {
-		landed += c
-	}
-	if landed > st.landed {
-		st.landed = landed
-		st.deadline = maxTime(st.deadline, time.Now().Add(s.Duration("sender.transfer.base")))
-	}
-	// part_size is base64 bytes; capped so the request stays under the limit.
-	// A receiver's max_part below one base64 group would give 0: no part
-	// could carry a byte, and the loop would never move.
-	raw := max(1, int64(min(s.Size("sender.upload.part_size"), int64(l.maxPart)))*3/4)
-	window := max(1, s.Int("sender.upload.in_flight"))
-	type sent struct {
-		off  int64
-		wait func(context.Context, any) error
-	}
-	n := 0
-	for _, f := range st.e.Files {
-		data := st.files[f.Name]
-		next := b.Committed[f.Name]
-		var pending []sent
-		for next < int64(len(data)) || len(pending) > 0 {
-			for len(pending) < window && next < int64(len(data)) {
-				end := min(next+raw, int64(len(data)))
-				wait, err := p.start(l, "roar.upload.part", map[string]any{"upload": b.Upload, "file": f.Name, "offset": next,
-					"data": base64.StdEncoding.EncodeToString(data[next:end])})
-				if err != nil {
-					return err
-				}
-				pending = append(pending, sent{next, wait})
-				p.mu.Lock()
-				p.Stats.SentBytes += end - next
-				p.mu.Unlock()
-				next = end
-			}
-			head := pending[0]
-			pending = pending[1:]
-			var r struct {
-				Committed int64 `json:"committed"`
-			}
-			if err := p.finish(ctx, head.wait, &r); err != nil {
-				for _, rest := range pending {
-					p.finish(ctx, rest.wait, nil) // drain; begin reports what landed
-				}
-				return err
-			}
-			p.mu.Lock()
-			p.Stats.PartBytes += max(0, r.Committed-head.off)
-			p.mu.Unlock()
-			// A moving upload never runs out of time; a part that adds nothing
-			// does not move it.
-			if r.Committed > head.off {
-				st.deadline = maxTime(st.deadline, time.Now().Add(s.Duration("sender.transfer.base")))
-			}
-			n++
-			if p.afterPart != nil {
-				p.afterPart(l.c, n)
-			}
-		}
-	}
-	return nil
-}
-
-func maxTime(a, b time.Time) time.Time {
-	if b.After(a) {
-		return b
-	}
-	return a
 }
 
 // await waits for roar.result calls until the record settles or

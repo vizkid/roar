@@ -71,13 +71,17 @@ func (s *subs) unsubscribe(id string) {
 }
 
 // drop forgets a sender that left Rex.
+// drop forgets a departed client: its subscriptions and its callback queue.
 func (s *subs) drop(client string) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	for _, sb := range s.byID {
 		if sb.client == client {
 			s.remove(sb)
 		}
+	}
+	s.mu.Unlock()
+	if s.cb != nil {
+		s.cb.drop(client)
 	}
 }
 
