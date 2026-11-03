@@ -26,6 +26,7 @@ type uploads struct {
 	dir     string
 	mu      sync.Mutex
 	meta    map[string]uploadMeta // open uploads by message ID
+	stale   map[string]bool       // uploads whose removal failed; retried
 	timer   *time.Timer
 	stopped bool
 }
@@ -45,7 +46,7 @@ const uploadPrefix = "up-"
 var errBadUpload = errors.New("bad upload id")
 
 func newUploads(d Deps) (*uploads, error) {
-	u := &uploads{d: d, dir: filepath.Join(d.Store.Root(), "uploads"), meta: map[string]uploadMeta{}}
+	u := &uploads{d: d, dir: filepath.Join(d.Store.Root(), "uploads"), meta: map[string]uploadMeta{}, stale: map[string]bool{}}
 	if err := os.MkdirAll(u.dir, 0o700); err != nil {
 		return nil, err
 	}
@@ -108,10 +109,17 @@ func (u *uploads) save(id string, m uploadMeta) error {
 	return nil
 }
 
-// drop deletes an upload from disk and the index. Called with mu.
+// drop deletes an upload from the index and from disk. A removal that
+// fails is logged and retried by each arm; begin also clears a leftover
+// directory before it reuses the ID. Called with mu.
 func (u *uploads) drop(id string) {
-	os.RemoveAll(u.path(id))
 	delete(u.meta, id)
+	if err := os.RemoveAll(u.path(id)); err != nil {
+		u.stale[id] = true
+		u.d.logf("upload %s: removing it: %v; will retry", id, err)
+		return
+	}
+	delete(u.stale, id)
 }
 
 func (u *uploads) remove(id string) {
@@ -144,6 +152,11 @@ func (u *uploads) arm() {
 	}
 	if u.stopped {
 		return
+	}
+	for id := range u.stale {
+		if os.RemoveAll(u.path(id)) == nil {
+			delete(u.stale, id)
+		}
 	}
 	now := time.Now()
 	var next time.Time
@@ -199,6 +212,12 @@ func (u *uploads) begin(raw, digest string) (any, *rexctl.Error) {
 	}
 	now := time.Now()
 	m := uploadMeta{Envelope: raw, Files: e.Files, Began: now, Last: now}
+	// Not indexed, so a directory here is a leftover: a removal that failed,
+	// or a begin that died. Its contents describe nothing usable.
+	if err := os.RemoveAll(u.path(e.ID)); err != nil {
+		return nil, &rexctl.Error{Code: "internal", Message: "upload_cleanup: " + err.Error()}
+	}
+	delete(u.stale, e.ID)
 	if err := os.Mkdir(u.path(e.ID), 0o700); err != nil {
 		return nil, &rexctl.Error{Code: "internal", Message: err.Error()}
 	}

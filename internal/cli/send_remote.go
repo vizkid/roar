@@ -80,7 +80,7 @@ func installHost(env Env, label string) (remote.Host, *config.Settings, error) {
 		return remote.Host{}, nil, err
 	}
 	h := remoteHost(env, label)
-	h.Timeout, h.Poll, h.ReadyTimeout = s.Duration("install.deadline"), s.Duration("install.ready_check"), s.Duration("install.ready_timeout")
+	h.Timeout, h.Poll = s.Duration("install.deadline"), s.Duration("install.ready_check")
 	return h, s, nil
 }
 

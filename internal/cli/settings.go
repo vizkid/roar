@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"runtime/debug"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/vizkid/rexkit/rex"
@@ -37,7 +38,31 @@ type rexHost struct {
 	Endpoints []string
 }
 
+// hostCache is one command's `rex hosts`: a cross-host send needs it to
+// split the host prefix and again to label the endpoint for settings. Main
+// clears it before each command, so a long-running process never keeps an
+// earlier command's list.
+var hostCache struct {
+	mu     sync.Mutex
+	bin    string
+	server string
+	hosts  []rexHost
+	ok     bool
+}
+
+func resetCommandCache() {
+	hostCache.mu.Lock()
+	hostCache.ok = false
+	hostCache.mu.Unlock()
+}
+
+// rexHosts lists the hosts this Rex knows, once per command and server.
 func rexHosts(ctx context.Context, c rex.Client) []rexHost {
+	hostCache.mu.Lock()
+	defer hostCache.mu.Unlock()
+	if hostCache.ok && hostCache.bin == c.Bin && hostCache.server == c.Server {
+		return hostCache.hosts
+	}
 	var out struct {
 		Hosts []struct {
 			Host struct {
@@ -53,6 +78,7 @@ func rexHosts(ctx context.Context, c rex.Client) []rexHost {
 	for _, h := range out.Hosts {
 		hosts = append(hosts, rexHost{Label: h.Host.Label, Endpoints: h.Host.Endpoints})
 	}
+	hostCache.bin, hostCache.server, hostCache.hosts, hostCache.ok = c.Bin, c.Server, hosts, true
 	return hosts
 }
 

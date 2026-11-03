@@ -221,3 +221,28 @@ func TestPartsReadNoMetadataFromDisk(t *testing.T) {
 		t.Fatalf("12 parts read metadata from disk %d times", n)
 	}
 }
+
+// Peer verification, 2026-11-03: a removal that failed left the directory
+// but dropped the index entry, so every later begin for that message failed
+// with "file exists", even once the disk allowed removal again.
+func TestBeginRecoversFromFailedRemoval(t *testing.T) {
+	h := newHarness(t, "")
+	u, err := newUploads(h.deps)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer u.stop()
+	e, _ := h.withFile("stale", 1024)
+	args := enqueueArgs(e)
+	raw, digest := args["envelope"].(string), args["sha256"].(string)
+	if _, rerr := u.begin(raw, digest); rerr != nil {
+		t.Fatal(rerr)
+	}
+	dir := u.path(e.ID)
+	os.Chmod(dir, 0o500) // its files cannot be removed
+	u.remove(e.ID)
+	os.Chmod(dir, 0o700)
+	if _, rerr := u.begin(raw, digest); rerr != nil {
+		t.Fatalf("begin after a failed removal: %v", rerr)
+	}
+}

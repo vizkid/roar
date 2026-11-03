@@ -58,15 +58,21 @@ func (q *queue[T]) pop(ctx context.Context, idle time.Duration) (T, bool) {
 	}
 }
 
-// add queues r. A queued subscription update for the same message is
-// replaced: the sender only needs the newest, and the new one goes to the
-// back so revisions stay in order. When max items are queued, the oldest
-// is dropped and add reports true. max 0 means no bound.
+// add queues r. Queued subscription updates for one message merge into the
+// newer: the sender only needs the newest, and it goes to the back so
+// revisions stay in order. Publishers send outside the subscription lock,
+// so an older update can arrive second; it is then dropped, not kept. When
+// max items are queued, the oldest is dropped and add reports true. max 0
+// means no bound.
 func (sq *senderQueue) add(r Result, max int) (dropped bool) {
 	sq.mu.Lock()
 	if r.Subscription != "" && len(r.Rows) == 1 {
 		for i, old := range sq.items {
 			if old.Subscription == r.Subscription && len(old.Rows) == 1 && old.Rows[0].ID == r.Rows[0].ID {
+				if newer(old, r) {
+					sq.mu.Unlock()
+					return false
+				}
 				sq.items = append(sq.items[:i], sq.items[i+1:]...)
 				break
 			}
@@ -81,4 +87,13 @@ func (sq *senderQueue) add(r Result, max int) (dropped bool) {
 	sq.mu.Unlock()
 	sq.wake()
 	return dropped
+}
+
+// newer reports whether a is a later update than b for the same message:
+// by the message's record revision, then by the subscription's.
+func newer(a, b Result) bool {
+	if ra, rb := a.Rows[0].Revision, b.Rows[0].Revision; ra != rb {
+		return ra > rb
+	}
+	return a.Revision > b.Revision
 }

@@ -89,3 +89,15 @@ func revisions(sq *senderQueue) string {
 	}
 	return s
 }
+
+// Peer verification, 2026-11-03: publishers send outside the subscription
+// lock, so revision 2 can arrive after revision 3. Merging kept the later
+// arrival, and a final state could be lost.
+func TestSenderQueueKeepsTheHigherRevision(t *testing.T) {
+	sq := &senderQueue{queue: newQueue[Result]()}
+	sq.add(Result{Subscription: "s", Revision: 3, Rows: []Row{{ID: "a", State: "read"}}}, 0)
+	sq.add(Result{Subscription: "s", Revision: 2, Rows: []Row{{ID: "a", State: "queued"}}}, 0)
+	if got := revisions(sq); got != "3" {
+		t.Fatalf("queued revisions %s, want 3", got)
+	}
+}

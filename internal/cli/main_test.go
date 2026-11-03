@@ -51,7 +51,7 @@ func TestInstallUsesItsSettings(t *testing.T) {
 	}
 	env := Env{Getenv: func(k string) string {
 		if k == "ROAR_SET" {
-			return "install.deadline=7m,install.ready_check=1s,install.ready_timeout=3s"
+			return "install.deadline=7m,install.ready_check=1s"
 		}
 		return ""
 	}, Stderr: io.Discard}
@@ -59,7 +59,7 @@ func TestInstallUsesItsSettings(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if h.Timeout != 7*time.Minute || h.Poll != time.Second || h.ReadyTimeout != 3*time.Second || s.Duration("install.deadline") != 7*time.Minute {
+	if h.Timeout != 7*time.Minute || h.Poll != time.Second || s.Duration("install.deadline") != 7*time.Minute {
 		t.Fatalf("host %+v", h)
 	}
 }

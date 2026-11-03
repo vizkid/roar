@@ -172,9 +172,9 @@ The `ids/` link is written after the rename into `box/`. A crash between the two
 | Is a watcher live? | The watcher holds `watch.lock` for as long as it runs. Commands test it with a non-blocking `flock`, as for adapters. |
 | Wake an adapter | Adapters poll their `box/<block>/` directory every 250 ms. A directory read is cheap, and polling needs no platform file watcher. |
 
-Retention: unread messages are never pruned. Read and expired messages are kept 7 days, so a late reply can still find its original. Pruning runs during `roar send` and `roar enqueue`.
+Retention: unread messages are never pruned. Read and expired messages are kept 7 days (`store.retention`), so a late reply can still find its original. Pruning runs during `roar send` and `roar enqueue`.
 
-Limits: 256 KiB per message body, 16 MiB of attachments per message, and for unread messages 2 MiB of bodies per recipient, 16 MiB of bodies per host, 256 MiB of attachments per host, and 1,000 messages per host. A send over a limit is refused before anything is stored. Two simultaneous sends can both pass: the limits stop runaway senders, not same-user attackers.
+Limits: 256 KiB per message body, 16 MiB of attachments per message, and for unread messages 2 MiB of bodies per recipient, 16 MiB of bodies per host, 256 MiB of attachments per host, and 1,000 messages per host. The unread limits are the defaults of `store.unread_per_recipient`, `store.unread_per_host`, `store.files_per_host` and `store.unread_messages`. A send over a limit is refused before anything is stored. Two simultaneous sends can both pass: the limits stop runaway senders, not same-user attackers.
 
 A message is found only in `box/<its recipient>/<its ID>` under the store. An index link or box entry that resolves anywhere else, or holds an envelope with another ID, is treated as missing.
 

@@ -48,3 +48,19 @@ func TestBusyProbeReadsNoScreen(t *testing.T) {
 		t.Fatalf("a busy pane cost %d Rex calls, want 2 (process, status): %q", len(got), got)
 	}
 }
+
+// Peer verification, 2026-11-03: a cross-host send ran rex hosts twice,
+// once to split the host prefix and once to find the endpoint's label.
+// One command reads the host list once.
+func TestHostListReadOncePerCommand(t *testing.T) {
+	h := newHarness(t)
+	bin, calls := countingRex(t)
+	rc := h.rex
+	rc.Bin = bin
+	resetCommandCache()
+	rexHosts(t.Context(), rc)
+	rexHosts(t.Context(), rc)
+	if got := calls(); len(got) != 1 {
+		t.Fatalf("rex hosts ran %d times: %q", len(got), got)
+	}
+}

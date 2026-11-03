@@ -100,6 +100,7 @@ func Main(args []string, env Env) int {
 		fmt.Fprintf(env.Stderr, "roar: config: %v\n", err)
 		return exitRefused
 	}
+	resetCommandCache()
 	ctx, cancel := commandContext(args[0])
 	defer cancel()
 	err := cmd(ctx, env, args[1:])

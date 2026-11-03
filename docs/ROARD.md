@@ -202,12 +202,12 @@ Every timer that remains, and the ones this design removes. Inherited timers in 
 | `sender.settle_poll` | 100ms | 100ms | S | How often a local send reads that outcome |
 | `target.elsewhere_timeout` | 5s | 20s | S | After a target misses here, how long to look for it on other hosts |
 | `target.dns_timeout` | 2s | 10s | S | Lookup of an unstored host by its tailnet name |
-| `panes.parallel` | 8 | 8 | S | Panes `roar panes` probes at once; each probe is about six Rex calls |
-| `store.retention` | 168h | 168h | S, D | How long a finished message stays, so a late reply finds its original |
-| `store.unread_per_recipient` | 2MiB | 2MiB | S, D | Unread body bytes one pane may hold |
-| `store.unread_per_host` | 16MiB | 16MiB | S, D | Unread body bytes the host may hold |
-| `store.files_per_host` | 256MiB | 256MiB | S, D | Unread attachment bytes the host may hold |
-| `store.unread_messages` | 1000 | 1000 | S, D | Unread messages the host may hold |
+| `panes.parallel` | 8 | 8 | S | Panes `roar panes` probes at once; each probe is about six Rex calls. roard reads it at start: needs a restart. |
+| `store.retention` | 168h | 168h | S, D | How long a finished message stays, so a late reply finds its original. roard reads it at start: needs a restart. |
+| `store.unread_per_recipient` | 2MiB | 2MiB | S, D | Unread body bytes one pane may hold. roard reads it at start: needs a restart. |
+| `store.unread_per_host` | 16MiB | 16MiB | S, D | Unread body bytes the host may hold. roard reads it at start: needs a restart. |
+| `store.files_per_host` | 256MiB | 256MiB | S, D | Unread attachment bytes the host may hold. roard reads it at start: needs a restart. |
+| `store.unread_messages` | 1000 | 1000 | S, D | Unread messages the host may hold. roard reads it at start: needs a restart. |
 | Sender's 2 min transfer deadline, extended by progress | Kept | `sender.transfer.*` | No event proves that a lost peer will answer |
 | Rex ping and pong, 120 s and 60 s | Kept, Rex's own | none; Rex sets them | Detects a broken transport |
 | `watch.lock` retry every 5 s | Only while an old watcher holds it | `watcher.legacy_lock_retry` | flock release has no event |
@@ -302,7 +302,7 @@ Who reads each key: **S** is the sender, **D** is roard, **C** is any command.
 | `roard.rex.reconnect.max` | 30s | 30s | D | |
 | `roard.rex.reconnect.jitter` | 0.2 | 0.2 | D | |
 | `roard.rex.reconnect.reset_after` | 60s | 60s | D | |
-| `roard.rex.connect_timeout` | 10s | 30s | D | One connection attempt to the local Rex server |
+| `roard.rex.connect_timeout` | 10s | 30s | D | One connection attempt to the local Rex server. roard reads it at start: needs a restart. |
 | `roard.callback.timeout` | 10s | 30s | D | Floor of each `roar.result` call's deadline |
 | `roard.callback.rtt_factor` | 8 | 12 | D | The same rule, with roard's own `srtt` per sender |
 | `roard.callback.initial` | 250ms | 1s | D | Backoff when a callback fails, such as `client_unavailable` |
@@ -330,7 +330,6 @@ Who reads each key: **S** is the sender, **D** is roard, **C** is any command.
 | `watcher.legacy_lock_retry` | 5s | 5s | D | Only while an old watcher holds `watch.lock` |
 | `install.deadline` | 2m | 10m | C | A whole `roar install` |
 | `install.ready_check` | 100ms | 500ms | C | Bootstrap only: how often install reads the screen for `ROAR-READY` |
-| `install.ready_timeout` | 20s | 2m | C | Bootstrap only |
 | `delivery.paste_check` | 100ms | 100ms | C, D | Inherited: paste proof checks |
 | `delivery.paste_wait` | 2s | 2s | C, D | Inherited |
 | `delivery.submit_wait` | 5s | 5s | C, D | Inherited |
@@ -476,6 +475,8 @@ The live run on Stiletto, Baroni and Colonelk reports, for a small send and for 
 ## Open questions
 
 **Stranded pane: cause found, 2026-11-03.** On 2026-11-02 four messages stayed queued for a real Claude pane through its rests and its close, until a roard restart. There were two causes. First, roard ignored every Rex event: it matched `block_event` and `block_closed` at the top level, but the server wraps both in a `session_event`. The unit tests fed the bare shape, and the end-to-end tests ran roard with a temporary `HOME`, so it never reached Rex. No host had ever logged a `block_closed` line. Second, with events working, an event that came during an attempt was lost: the attempt it caused found the message lock held, and the running attempt finished with what it had read before the event. `TestRoardDeliversEachHeldSendInTurn` failed 2 times in 10 before the fixes and 9 in 25 with roard connected, and 0 in 40 after. `TestRexEventRouting`, `TestBlockClosedSchedulesAttempt` and `TestEventDuringAttemptRunsAgain` pin the fixes. `watcher.sweep` stays as the backstop.
+
+**Code review, 2026-11-03.** A Codex peer (GPT-6-Astra, started with `smithers spawn`) reviewed 930a9ee and found 16 problems; all are fixed in 17ff1c4 through 99c2712, each with a test that failed first. The ones that change behaviour an operator can see: text after `--` is never parsed as flags; `roar config set` writes the parsed value and `config set`/`unset` find a key in any TOML spelling, while a key set twice in two spellings is refused at load; `roar install` honours `install.*` for the target host; a send's budget bounds every dial and call of a try; a sender's callback queue ends when the sender leaves or after `roard.callback.idle`. Every key in the table above is read by code, and `TestEveryKeyIsRead` keeps it so.
 
 | Question | Recommendation |
 | --- | --- |

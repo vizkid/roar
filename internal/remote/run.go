@@ -44,12 +44,16 @@ type Host struct {
 	Bin     string     // remote roar path; DefaultBin when empty
 	Env     []string   // extra environment for the remote command
 	Session string     // label of the session for detached blocks; empty picks an existing one
-	// The install.* settings: the whole command, how often to look, and the
-	// wait for a bootstrap's ready marker. Zero uses those keys' defaults.
-	Timeout      time.Duration
-	Poll         time.Duration
-	ReadyTimeout time.Duration
+	// The install.* settings: the whole command, and how often to look.
+	// Zero uses those keys' defaults.
+	Timeout time.Duration
+	Poll    time.Duration
 }
+
+// readyWait bounds the wait for a remote command's ready marker. Only the
+// legacy sender, kept for the tests of older senders' `roar enqueue`, feeds
+// input that way, so it is not a setting.
+const readyWait = 20 * time.Second
 
 func orDefault(d time.Duration, key string) time.Duration {
 	if d > 0 {
@@ -143,7 +147,7 @@ func (h Host) finish(ctx context.Context, session, block string, cause error) (i
 }
 
 func (h Host) waitFor(ctx context.Context, session, block, marker string) error {
-	deadline := time.Now().Add(orDefault(h.ReadyTimeout, "install.ready_timeout"))
+	deadline := time.Now().Add(readyWait)
 	for time.Now().Before(deadline) {
 		out, err := h.Rex.Run(ctx, "capture", "-s", session, "-b", block, "--trim", "--unwrap")
 		if err == nil && strings.Contains(string(out), marker) {

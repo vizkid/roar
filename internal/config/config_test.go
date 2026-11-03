@@ -191,7 +191,7 @@ func TestKeyTable(t *testing.T) {
 		"roard.callback.give_up":   {"2m", "10m"},
 		"watcher.gap_recheck":      {"30s", "30s"},
 		"watcher.sweep":            {"60s", "60s"},
-		"install.ready_timeout":    {"20s", "2m"},
+		"install.deadline":         {"2m", "10m"},
 		"claude.poll":              {"250ms", "250ms"},
 		"roard.relay.retire":       {"true", "true"},
 	} {
@@ -229,5 +229,17 @@ func TestPartSizeCarriesAByte(t *testing.T) {
 	}
 	if _, _, err := Load(Options{Set: "sender.upload.part_size=4B"}); err != nil {
 		t.Fatalf("4B refused: %v", err)
+	}
+}
+
+// Peer verification, 2026-11-03: roard read these once, at start, but a
+// reload logged success and changed nothing. A key read only at start must
+// say so, so the reload names it.
+func TestStartupKeysNeedARestart(t *testing.T) {
+	for _, n := range []string{"store.retention", "store.unread_per_recipient", "store.unread_per_host",
+		"store.files_per_host", "store.unread_messages", "roard.rex.connect_timeout", "panes.parallel", "roard.queue"} {
+		if k, ok := Lookup(n); !ok || !k.Restart {
+			t.Errorf("%s: Restart not set", n)
+		}
 	}
 }
