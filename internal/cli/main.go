@@ -78,6 +78,8 @@ const usage = `usage: roar <command> [args]
   mcp                        the Claude adapter (Claude starts it; do not run it yourself)
   hook codex                 the Codex SessionStart hook (Codex runs it; do not run it yourself)
   bind agy                   in Antigravity: let Roar deliver to this session directly
+  bind codex --thread <id> --pid <pid> [--codex-home <dir>]
+                             record a daemon-backed Codex thread's pane (a launcher such as Burns runs it)
 `
 
 // Main runs one command and returns its exit code.

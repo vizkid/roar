@@ -1,14 +1,16 @@
 package store
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
 )
 
 // CodexBinding names the thread a pane's Codex TUI shows. The Codex
-// SessionStart hook writes it for an in-process Codex; for a daemon-backed
-// one, Roar learns it from a delivered message (see cli/identity.go).
+// SessionStart hook writes it for an in-process Codex. For a daemon-backed
+// one, a launcher writes it with `roar bind codex` (cli/bindcodex.go), or
+// Roar learns it from a delivered message (cli/codexself.go).
 type CodexBinding struct {
 	Thread    string    `json:"thread"`
 	Session   string    `json:"session,omitempty"`
@@ -23,6 +25,13 @@ func (s *Store) BindCodex(block string, b CodexBinding) error {
 		return err
 	}
 	return writeJSON(s.bindingPath(block), b)
+}
+
+// UnbindCodex deletes the pane's binding.
+func (s *Store) UnbindCodex(block string) {
+	if safeName(block) == nil {
+		os.Remove(s.bindingPath(block))
+	}
 }
 
 // CodexBinding returns the pane's last recorded binding, if any.

@@ -13,8 +13,11 @@ import (
 // agent API credentials only to commands its model runs, so agy itself
 // must run this. It prints the pane, never the token.
 func cmdBind(ctx context.Context, env Env, args []string) error {
+	if len(args) >= 1 && args[0] == "codex" {
+		return cmdBindCodex(ctx, env, args[1:])
+	}
 	if len(args) != 1 || args[0] != "agy" {
-		return usageErr("roar bind agy")
+		return usageErr("roar bind agy | roar bind codex --thread <id> --pid <pid> [--codex-home <dir>]")
 	}
 	block, err := bindAgy(ctx, env)
 	if err != nil {
