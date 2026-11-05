@@ -40,6 +40,8 @@ Without them, messages still arrive by typing through Rex.
 Send from any Rex pane:
 
 ```sh
+roar panes --all                    # show hosts, sessions, tabs, panes, and agents
+roar send --dry-run comm@stance     # show the destination without sending
 roar send api-work "Schema change merged; rebase before you push."
 roar send api-work/tests "Run the integration suite."   # a named pane
 roar send Baroni:api-work "Same, on another Rex host."

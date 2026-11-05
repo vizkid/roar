@@ -18,6 +18,7 @@ import (
 
 func cmdSend(ctx context.Context, env Env, args []string) error {
 	fs := flag.NewFlagSet("send", flag.ContinueOnError)
+	dryRun := fs.Bool("dry-run", false, "resolve the recipient without storing or sending a message")
 	request := fs.Bool("request", false, "ask the recipient to act")
 	reply := fs.String("reply", "", "answer this message from your inbox")
 	key := fs.String("key", "", "idempotency key; a retried send with the same key is stored once")
@@ -27,6 +28,16 @@ func cmdSend(ctx context.Context, env Env, args []string) error {
 	pos, err := parse(fs, args)
 	if err != nil {
 		return err
+	}
+	if *dryRun && *reply == "" {
+		if len(pos) == 0 {
+			return usageErr("roar send --dry-run <target>")
+		}
+		to, rc, err := resolveTarget(ctx, env, pos[0])
+		if err != nil {
+			return err
+		}
+		return printTarget(ctx, env, rc, to, *asJSON)
 	}
 	from, err := self(ctx, env)
 	if err != nil {
@@ -39,6 +50,13 @@ func cmdSend(ctx context.Context, env Env, args []string) error {
 	to, words, err := recipient(ctx, env, st, from, pos, *reply)
 	if err != nil {
 		return err
+	}
+	if *dryRun {
+		rc := env.Rex
+		if to.HostID != from.HostID {
+			rc.Server = to.Endpoint
+		}
+		return printTarget(ctx, env, rc, to, *asJSON)
 	}
 	text := joinText(words)
 	if len(words) == 0 {

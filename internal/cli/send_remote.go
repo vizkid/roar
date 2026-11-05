@@ -26,10 +26,12 @@ func splitHost(ctx context.Context, c rex.Client, target string) (host, rest str
 	if !ok || label == "block" || label == "session" {
 		return "", target, nil
 	}
-	for _, h := range hostLabels(ctx, c) {
-		if strings.EqualFold(h, label) {
-			return h, rest, nil
-		}
+	h, found, err := storedHost(rexHosts(ctx, c), label)
+	if err != nil {
+		return "", "", err
+	}
+	if found {
+		return h.Label, rest, nil
 	}
 	// Rex gives this host an empty label, but other hosts know it by its
 	// machine name, so an address copied from their messages carries it.

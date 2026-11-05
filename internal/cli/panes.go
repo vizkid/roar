@@ -21,6 +21,10 @@ import (
 // when no agent runs there. Note says why a native path is not in use.
 type paneRow struct {
 	Session string `json:"session"`
+	Host    string `json:"host,omitempty"`
+	Tab     string `json:"tab"`
+	Window  string `json:"window,omitempty"`
+	Flavor  string `json:"flavor,omitempty"`
 	Pane    string `json:"pane"`
 	Block   string `json:"block"`
 	Agent   string `json:"agent,omitempty"`
@@ -34,19 +38,28 @@ type paneRow struct {
 func cmdPanes(ctx context.Context, env Env, args []string) error {
 	fs := flag.NewFlagSet("panes", flag.ContinueOnError)
 	asJSON := fs.Bool("json", false, "print as JSON")
+	all := fs.Bool("all", false, "list panes on this host and every stored host")
 	porcelain := fs.Bool("porcelain", false, "print one stable line per pane (for other hosts)")
 	pos, err := parse(fs, args)
 	if err != nil {
 		return err
 	}
-	if len(pos) > 1 {
-		return usageErr("roar panes [host]")
+	if len(pos) > 1 || (*all && len(pos) != 0) {
+		return usageErr("roar panes [host] [--all]")
 	}
 	var rows []paneRow
-	if len(pos) == 1 {
+	if *all {
+		rows, err = allPanes(ctx, env)
+	} else if len(pos) == 1 {
 		rows, err = remotePanes(ctx, env, pos[0])
+		for i := range rows {
+			rows[i].Host = pos[0]
+		}
 	} else {
 		rows, err = localPanes(ctx, env)
+		for i := range rows {
+			rows[i].Host = localName()
+		}
 	}
 	if err != nil {
 		return err
@@ -60,10 +73,10 @@ func cmdPanes(ctx context.Context, env Env, args []string) error {
 		}
 		return nil
 	}
-	fmt.Fprintf(env.Stdout, "%-24s %-6s %-6s %-13s %-6s %-26s %s\n", "PANE", "BLOCK", "AGENT", "PATH", "QUEUED", "READY", "NOTE")
+	fmt.Fprintf(env.Stdout, "%-18s %-20s %-24s %-20s %-6s %-6s %-13s %-6s %-26s %s\n", "HOST", "SESSION", "TAB", "PANE", "BLOCK", "AGENT", "PATH", "QUEUED", "READY", "NOTE")
 	for _, r := range rows {
-		fmt.Fprintf(env.Stdout, "%-24s %-6s %-6s %-13s %-6d %-26s %s\n",
-			r.Pane+"@"+r.Session, shortID(r.Block), r.Agent, r.Path, r.Queued, r.Ready, r.Note)
+		fmt.Fprintf(env.Stdout, "%-18s %-20s %-24s %-20s %-6s %-6s %-13s %-6d %-26s %s\n",
+			r.Host, r.Session, r.Tab, r.Pane, shortID(r.Block), r.Agent, r.Path, r.Queued, r.Ready, r.Note)
 	}
 	return nil
 }
@@ -90,7 +103,7 @@ func localPanes(ctx context.Context, env Env) ([]paneRow, error) {
 		windows, _ := rc.Windows(ctx, s.ID)
 		for _, b := range blocks {
 			if b.Terminal() {
-				rows = append(rows, paneRow{Session: s.Label, Pane: paneName(b, windows), Block: b.ID})
+				rows = append(rows, paneRow{Session: s.Label, Pane: b.Label, Tab: tabName(b, windows), Window: b.WindowID, Flavor: b.Flavor, Block: b.ID})
 				sids = append(sids, s.ID)
 			}
 		}
@@ -110,15 +123,14 @@ func localPanes(ctx context.Context, env Env) ([]paneRow, error) {
 	return rows, nil
 }
 
-// paneName is the tab's label, the name people see, else the block's.
-// Blocks are mostly labelled "shell".
-func paneName(b rex.Block, windows []rex.Window) string {
+// tabName keeps the tab label separate from the block label.
+func tabName(b rex.Block, windows []rex.Window) string {
 	for _, w := range windows {
 		if w.ID == b.WindowID && w.Label != "" {
 			return w.Label
 		}
 	}
-	return b.Label
+	return ""
 }
 
 func describePane(ctx context.Context, rc rex.Client, st *store.Store, session string, r *paneRow) {
@@ -189,7 +201,7 @@ func (r paneRow) fields() []string {
 		}
 		return strings.ReplaceAll(s, " ", "_")
 	}
-	return []string{dash(r.Session), dash(r.Pane), r.Block, dash(r.Agent), strconv.Itoa(r.PID), r.Path, dash(r.Ready), strconv.Itoa(r.Queued), dash(r.Note)}
+	return []string{dash(r.Session), dash(r.Pane), r.Block, dash(r.Agent), strconv.Itoa(r.PID), r.Path, dash(r.Ready), strconv.Itoa(r.Queued), dash(r.Note), dash(r.Tab), dash(r.Host), dash(r.Window), dash(r.Flavor)}
 }
 
 func remotePanes(ctx context.Context, env Env, host string) ([]paneRow, error) {
@@ -203,5 +215,45 @@ func remotePanes(ctx context.Context, env Env, host string) ([]paneRow, error) {
 		return nil, err
 	}
 	var rows []paneRow
-	return rows, json.Unmarshal(raw, &rows)
+	if err := json.Unmarshal(raw, &rows); err != nil {
+		return nil, err
+	}
+	// Older daemons combine the labels. Read missing metadata through Rex.
+	rc := env.Rex
+	rc.Server = p.Endpoint
+	bySession := map[string][]int{}
+	for i := range rows {
+		if rows[i].Window == "" {
+			bySession[rows[i].Session] = append(bySession[rows[i].Session], i)
+		}
+	}
+	if len(bySession) == 0 {
+		return rows, nil
+	}
+	sessions, err := rc.Sessions(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, session := range sessions {
+		indices := bySession[session.Label]
+		if len(indices) == 0 {
+			continue
+		}
+		blocks, err := rc.Blocks(ctx, session.ID)
+		if err != nil {
+			return nil, err
+		}
+		windows, err := rc.Windows(ctx, session.ID)
+		if err != nil {
+			return nil, err
+		}
+		for _, i := range indices {
+			for _, b := range blocks {
+				if b.ID == rows[i].Block {
+					rows[i].Pane, rows[i].Tab, rows[i].Window, rows[i].Flavor = b.Label, tabName(b, windows), b.WindowID, b.Flavor
+				}
+			}
+		}
+	}
+	return rows, nil
 }

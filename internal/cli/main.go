@@ -60,14 +60,14 @@ var commands = map[string]command{
 
 const usage = `usage: roar <command> [args]
 
-  send <target> [text]       store a message and try to deliver it (stdin when no text)
+  send <target> [text] [--dry-run]   preview the destination, or store a message and try to deliver it (stdin when no text)
   inbox                      list messages waiting for this pane
   read <id> [--mark]         print a message; --mark marks it read
   status [id...]             show the state of messages you sent
   withdraw <id>              expire your own queued message
   resolve <id> --read|--requeue   settle a message in state unknown
   ready <target>             is the pane's agent at rest with an empty composer? (exit 0 yes, 1 wait, 2 never)
-  panes [host]               list Rex panes: agent, delivery path, readiness, queued messages
+  panes [host] [--all]       list Rex panes: agent, delivery path, readiness, queued messages
   deliver [target...] [--watch]   deliver held messages to panes that are ready
   setup                      add Roar to every Claude and Codex config root in $HOME
   install [--binary <path>] <host-label>   copy this roar, or another platform's build, to

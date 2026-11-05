@@ -96,10 +96,12 @@ func resolveServer(ctx context.Context, env Env, server string) (endpoint, label
 		}
 		return server, "", nil
 	}
-	for _, h := range hosts {
-		if strings.EqualFold(h.Label, server) && len(h.Endpoints) > 0 {
-			return h.Endpoints[0], h.Label, nil
-		}
+	h, found, err := storedHost(hosts, server)
+	if err != nil {
+		return "", "", err
+	}
+	if found && len(h.Endpoints) > 0 {
+		return h.Endpoints[0], h.Label, nil
 	}
 	if strings.Contains(server, ".") { // a DNS name, as roar install takes it
 		return "https://" + server, server, nil

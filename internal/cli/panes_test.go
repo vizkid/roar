@@ -46,6 +46,22 @@ func TestPanesShowsDeliveryPaths(t *testing.T) {
 			t.Fatalf("%s: %+v (found %v), want agent %q path %q queued %d", p.label, r, ok, agent, path, queued)
 		}
 	}
+	blocks, err := h.rex.Blocks(t.Context(), shell.session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	windows, err := h.rex.Windows(t.Context(), shell.session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, b := range blocks {
+		if b.ID == shell.block {
+			r := byBlock[b.ID]
+			if r.Pane != b.Label || r.Tab != tabName(b, windows) || r.Window != b.WindowID {
+				t.Fatalf("labels lost: %+v, block %+v", r, b)
+			}
+		}
+	}
 	check(shell, "", "none", 1)
 	// A binding alone is not enough: the thread must be on a Codex daemon.
 	check(codexPane, "codex", "typed", 0)
